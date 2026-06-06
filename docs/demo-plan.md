@@ -67,7 +67,7 @@ Keep it minimal — show only what the demo narrative needs:
 
 - Monad testnet + RPC status (compact header pills).
 - GridPlus device / EIP-7702 delegation status.
-- Markets list: the SQLite markets (title, fixture, status, and each market's context API URL).
+- Markets list (label it simply "Markets", not "SQLite markets"): the markets stored in SQLite — title, fixture, status, and each market's context API URL.
 - Agent Registry table (name, market, budget left, status).
 - Create / prompt agent form (name, prompt, market, budget, max trade, minimum edge, interval).
 - Selected agent details (prompt + budget/spent/max-trade/min-edge).

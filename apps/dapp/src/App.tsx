@@ -486,7 +486,7 @@ export function App() {
 				<Card>
 					<CardHeader>
 						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Markets</p>
-						<CardTitle className="text-lg">SQLite markets</CardTitle>
+						<CardTitle className="text-lg">Markets</CardTitle>
 						<CardDescription>World Cup prediction markets stored in the backend, with each market's context API.</CardDescription>
 						<CardAction>
 							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
