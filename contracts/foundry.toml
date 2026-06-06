@@ -8,4 +8,4 @@ optimizer_runs = 200
 evm_version = "cancun"
 
 [rpc_endpoints]
-monad = "https://rpc.contract.dev/f656e8028c1916415a7d2ee076d09921"
+monad = "https://rpc.contract.dev/54086de44209441ee2f51e3f4a579aa1"

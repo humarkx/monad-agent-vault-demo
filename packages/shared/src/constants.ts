@@ -1,20 +1,20 @@
 export const MONAD_TESTNET = {
-	caip2: 'eip155:10143',
-	chainId: 10143,
-	chainHex: '0x279f',
-	name: 'Monad Testnet',
+	caip2: 'eip155:143',
+	chainId: 143,
+	chainHex: '0x8f',
+	name: 'Monad',
 	nativeToken: {
 		name: 'Monad',
 		symbol: 'MON',
 		decimals: 18,
 	},
 	testCollateral: {
-		address: '0x0000000000000000000000000000000000000000',
+		address: '0xC668310bf9cB46174a68Ac86C563f4D3a0f6e92d',
 		symbol: 'MockUSDC',
 		decimals: 6,
 	},
 	usdc: {
-		address: '0x0000000000000000000000000000000000000000',
+		address: '0xC668310bf9cB46174a68Ac86C563f4D3a0f6e92d',
 		symbol: 'MockUSDC',
 		decimals: 6,
 	},
@@ -97,6 +97,6 @@ export const EVENT_INTELLIGENCE_SERVICE = {
 
 export const DEMO_SERVICE = EVENT_INTELLIGENCE_SERVICE
 
-export const DEMO_AGENT_VAULT_DELEGATE = '0x1111111111111111111111111111111111111111' as const
+export const DEMO_AGENT_VAULT_DELEGATE = '0xe52C75d2705537BaD9a6ffC13EAf3120df3bEB5D' as const
 
 export const DEFAULT_CONTEXT_API_PATH = `/context/markets/${DEFAULT_MARKET_ID}` as const

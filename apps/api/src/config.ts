@@ -57,11 +57,11 @@ loadLocalEnvFile()
 export const config: DemoConfig = {
 	PORT: Number(process.env.PORT ?? 10000),
 	API_CORS_ORIGINS: ['http://localhost:5173', 'https://monad-agent-vault-dapp.onrender.com'],
-	MONAD_RPC_URL: 'https://testnet-rpc.monad.xyz',
+	MONAD_RPC_URL: 'https://rpc.contract.dev/54086de44209441ee2f51e3f4a579aa1',
 	SQLITE_DB_FILE: process.env.SQLITE_DB_FILE ?? (existsSync('/var/data') ? '/var/data/agent-vault.sqlite' : join(repoRoot, 'data/agent-vault.sqlite')),
 	SPONSOR_PRIVATE_KEY: undefined,
 	AGENT_PRIVATE_KEY: undefined,
-	AGENT_VAULT_DELEGATE_ADDRESS: undefined,
+	AGENT_VAULT_DELEGATE_ADDRESS: '0xe52C75d2705537BaD9a6ffC13EAf3120df3bEB5D',
 	GRIDPLUS_SIGNER_MODE: 'device',
 	GRIDPLUS_DEVICE_ID: '6OJVRM',
 	GRIDPLUS_APP_SECRET: 'f41890972c37bf600028d603bfbb05378c41bc0d67dc8e1fc6bcd8f4e5884a4a',
