@@ -12,3 +12,5 @@ broadcast
 coverage
 *.log
 .tmp-*
+data/*.sqlite
+data/*.sqlite-*
