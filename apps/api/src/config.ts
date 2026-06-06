@@ -34,7 +34,7 @@ export const config: DemoConfig = {
 	GRIDPLUS_DEVICE_ID: '6OJVRM',
 	GRIDPLUS_APP_SECRET: 'f41890972c37bf600028d603bfbb05378c41bc0d67dc8e1fc6bcd8f4e5884a4a',
 	GRIDPLUS_APP_NAME: 'Monad Agent Vault Demo',
-	GRIDPLUS_BASE_URL: 'https://api.gridplus.io/api/v1/secure',
+	GRIDPLUS_BASE_URL: 'https://signing.gridpl.us',
 	GRIDPLUS_SIMULATOR_URL: 'https://simulator.gridplus.io',
 	GRIDPLUS_SIMULATOR_MQTT_WS_URL: 'wss://mqtt.gridplus.io/ws',
 	GRIDPLUS_SIMULATOR_PROVISION_URL: 'https://api.gridplus.io/provision',

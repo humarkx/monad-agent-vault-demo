@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { Client, fetchAddress, pair, setup, signAuthorization as gridplusSignAuthorization, signMessage as gridplusSignMessage } from 'gridplus-sdk'
+import { fetchAddress, pair, setup, signAuthorization as gridplusSignAuthorization, signMessage as gridplusSignMessage } from 'gridplus-sdk'
 import { privateKeyToAccount } from 'viem/accounts'
 import type { Address, Authorization, Hex } from 'viem'
 import { agentMandateTypes, buildAgentMandateTypedData, type AgentMandate, type DeviceMode, MONAD_MAINNET } from '@gridplus-monad-agent-vault/shared'
@@ -47,7 +47,7 @@ const readStoredClientState = (): { raw: string; parsed: StoredClientState } | n
 		return null
 	}
 	const parsed = decodeClientState(raw)
-	if (!parsed) {
+	if (!parsed || parsed.baseUrl !== config.GRIDPLUS_BASE_URL) {
 		unlinkSync(clientStateFile)
 		return null
 	}
@@ -99,6 +99,17 @@ const primeStoredClient = async (): Promise<void> => {
 		setStoredClient: writeClientState,
 	})
 }
+
+const initializeDeviceClient = async (params: { deviceId: string; appName: string }): Promise<boolean> =>
+	setup({
+		deviceId: params.deviceId,
+		password: 'gridplus-monad-agent-vault-demo',
+		name: params.appName,
+		appSecret: readOrCreateAppSecret(),
+		baseUrl: config.GRIDPLUS_BASE_URL,
+		getStoredClient: readClientState,
+		setStoredClient: writeClientState,
+	})
 
 const fetchOwnerIfAvailable = async (): Promise<Address | null> => {
 	try {
@@ -159,16 +170,7 @@ export async function setupDevice(params: { mode: DeviceMode; deviceId?: string;
 		throw new Error('GRIDPLUS_DEVICE_ID or a request deviceId is required for GridPlus device mode.')
 	}
 
-	const appSecret = readOrCreateAppSecret()
-	const client = new Client({
-		deviceId,
-		privKey: appSecret,
-		name: appName,
-		baseUrl: config.GRIDPLUS_BASE_URL,
-		setStoredClient: writeClientState,
-	})
-	const connectedAndPaired = Boolean(await client.connect(deviceId))
-	await primeStoredClient()
+	const connectedAndPaired = Boolean(await initializeDeviceClient({ deviceId, appName }))
 	const owner = connectedAndPaired ? await fetchOwnerIfAvailable() : null
 	return { paired: Boolean(owner), owner, mode: 'device' as const, deviceId, appName }
 }
@@ -177,7 +179,15 @@ export async function pairDevice(pairingCode: string, context: { mode: DeviceMod
 	if (context.mode === 'device' && !readStoredClientState()) {
 		await setupDevice({ mode: 'device', deviceId: context.deviceId ?? undefined, appName: context.appName ?? undefined })
 	}
-	await primeStoredClient()
+	try {
+		await primeStoredClient()
+	} catch (error) {
+		if (context.mode === 'device' && error instanceof Error && error.message.includes('Client not initialized')) {
+			await setupDevice({ mode: 'device', deviceId: context.deviceId ?? undefined, appName: context.appName ?? undefined })
+		} else {
+			throw error
+		}
+	}
 	let paired: boolean
 	try {
 		paired = Boolean(await pair(pairingCode))
