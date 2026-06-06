@@ -84,7 +84,12 @@ routes.post('/device/setup', async (c) => {
 
 routes.post('/device/pair', async (c) => {
 	const input = devicePairRequestSchema.parse(await jsonBody(c))
-	const result = await pairDevice(input.pairingCode)
+	const state = getState()
+	const result = await pairDevice(input.pairingCode, {
+		mode: state.device.mode,
+		deviceId: state.device.deviceId,
+		appName: state.device.appName,
+	})
 	patchState({ device: { ...getState().device, paired: result.paired, owner: result.owner, deviceId: result.deviceId, appName: result.appName } })
 	addEvent({ actor: 'GridPlus', title: 'Pairing completed', detail: result.paired ? `Device pairing succeeded for ${result.owner}.` : 'Device pairing did not complete.', status: result.paired ? 'success' : 'warning' })
 	return c.json({ paired: result.paired, owner: result.owner, state: getState() })

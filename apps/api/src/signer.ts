@@ -173,9 +173,22 @@ export async function setupDevice(params: { mode: DeviceMode; deviceId?: string;
 	return { paired: Boolean(owner), owner, mode: 'device' as const, deviceId, appName }
 }
 
-export async function pairDevice(pairingCode: string) {
+export async function pairDevice(pairingCode: string, context: { mode: DeviceMode; deviceId?: string | null; appName?: string | null }) {
+	if (context.mode === 'device' && !readStoredClientState()) {
+		await setupDevice({ mode: 'device', deviceId: context.deviceId ?? undefined, appName: context.appName ?? undefined })
+	}
 	await primeStoredClient()
-	const paired = await pair(pairingCode)
+	let paired: boolean
+	try {
+		paired = Boolean(await pair(pairingCode))
+	} catch (error) {
+		if (context.mode === 'device' && error instanceof Error && error.message.includes('Client not initialized')) {
+			await setupDevice({ mode: 'device', deviceId: context.deviceId ?? undefined, appName: context.appName ?? undefined })
+			paired = Boolean(await pair(pairingCode))
+		} else {
+			throw error
+		}
+	}
 	const owner = paired ? await fetchOwnerIfAvailable() : null
 	const stored = readStoredClientState()
 	return {
