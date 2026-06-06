@@ -63,18 +63,18 @@ The dapp does not collect a GridPlus password. The API opens or resumes a provid
 
 ## Presentation UI
 
-The first screen should show:
+Keep it minimal — show only what the demo narrative needs:
 
-- Monad testnet status.
-- GridPlus device status.
-- Active EIP-7702 delegation status.
-- Agent Registry table.
+- Monad testnet + RPC status (compact header pills).
+- GridPlus device / EIP-7702 delegation status.
+- Markets list: the SQLite markets (title, fixture, status, and each market's context API URL).
+- Agent Registry table (name, market, budget left, status).
 - Create / prompt agent form (name, prompt, market, budget, max trade, minimum edge, interval).
-- Selected agent details.
-- Market context payload.
-- Last decision trace.
-- Budget and spend state.
+- Selected agent details (prompt + budget/spent/max-trade/min-edge).
+- Latest run: market context, decision, trade side, execution status.
 - Timeline of pair, delegate, run, trade, block, revoke, and cleanup actions.
+
+Omit (noise — do not render): the readable "test signature" / Hello World panel, raw infrastructure URLs (demo API, device relay, simulator MQTT, provision API), SQLite row counts, prompt hash / prompt URI, and the legacy runner "execution board" driven by the old football agent map. The markets list replaces the runner section.
 
 ## Branding & Theme
 

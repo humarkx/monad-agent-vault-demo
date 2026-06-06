@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Bot, Brain, CheckCircle2, CircleDollarSign, Database, ExternalLink, FileJson, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, Trophy, WalletCards, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Database, ExternalLink, FileJson, Goal, KeyRound, Play, PlugZap, PlusCircle, RefreshCw, ShieldCheck, ShieldOff, Trophy, WalletCards } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MONAD_NETWORK, type AgentRun, type AuditEvent, type DemoState, type RegisteredAgent, type RegistryMarket } from '@gridplus-monad-agent-vault/shared'
-import { API_BASE_URL, formatError, getState, postAction } from './api'
+import { formatError, getState, postAction } from './api'
 import { BackgroundPattern } from './components/ui/background-pattern'
 import { Badge } from './components/ui/badge'
 import { Button, buttonVariants } from './components/ui/button'
@@ -14,32 +14,37 @@ import { StatusPill, type StatusPillTone } from './components/ui/status-pill'
 import { cn } from './lib/utils'
 
 const short = (value: string | null | undefined) => (value ? `${value.slice(0, 6)}...${value.slice(-4)}` : 'Not set')
-const compactUrl = (value: string) => value.replace(/^(https?|wss?):\/\//, '')
 const percent = (value: number | null | undefined) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : 'Not set')
 const edge = (value: number | null | undefined) => (typeof value === 'number' ? `${value > 0 ? '+' : ''}${(value / 100).toFixed(1)}%` : 'Not set')
 
 const formatAtomicCollateral = (value: string | null | undefined) => {
-	if (!value) return '0.000000 MockUSDC'
+	if (!value) return '0.00 MockUSDC'
 	const raw = BigInt(value)
 	const whole = raw / 1_000_000n
-	const fraction = (raw % 1_000_000n).toString().padStart(6, '0')
+	const fraction = (raw % 1_000_000n).toString().padStart(6, '0').slice(0, 2)
 	return `${whole}.${fraction} MockUSDC`
 }
 
-const formatTime = (value: string | null | undefined) => {
-	if (!value) return 'Not set'
-	return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const toAtomic = (value: string) => {
+	const n = Number(value)
+	if (!Number.isFinite(n) || n < 0) return '0'
+	return BigInt(Math.round(n * 1_000_000)).toString()
 }
+
+const formatTime = (value: string | null | undefined) => (value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Not set')
 
 const deviceModeLabel = (mode: DemoState['device']['mode']) => (mode === 'device' ? 'Device' : 'Local signer')
 
 const statusTone = (status: string): StatusPillTone => {
-	if (status === 'active' || status === 'success' || status === 'complete' || status === 'approved') return 'success'
+	if (status === 'active' || status === 'open' || status === 'success' || status === 'complete' || status === 'approved') return 'success'
 	if (status === 'dry-run' || status === 'running') return 'info'
-	if (status === 'paused' || status === 'warning') return 'warning'
+	if (status === 'paused' || status === 'draft' || status === 'warning') return 'warning'
 	if (status === 'revoked' || status === 'blocked' || status === 'error') return 'danger'
 	return 'neutral'
 }
+
+const fieldClass =
+	'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30'
 
 const TIMELINE_DOT: Record<string, string> = {
 	success: 'bg-emerald-400',
@@ -89,25 +94,109 @@ function Metric({ label, value, detail, mono = true }: { label: string; value: s
 	)
 }
 
-function DetailItem({ label, value, href }: { label: string; value: string; href?: string }) {
+function MarketsList({ markets }: { markets: RegistryMarket[] }) {
+	if (markets.length === 0) {
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No markets in SQLite yet.</div>
+	}
 	return (
-		<div className="min-w-0 rounded-lg border border-border/60 bg-background/40 p-3">
-			<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-			<p className="mt-1 break-words font-mono text-sm font-medium text-foreground">{value}</p>
-			{href ? (
-				<a className="mt-1 inline-block text-xs font-medium text-primary hover:underline" href={href} rel="noreferrer" target="_blank">
-					View on Monadscan
-				</a>
-			) : null}
+		<div className="grid gap-2 sm:grid-cols-2">
+			{markets.map((market) => (
+				<div className="rounded-lg border border-border/60 bg-muted/20 p-3" key={market.marketId}>
+					<div className="flex items-start justify-between gap-2">
+						<div className="min-w-0">
+							<p className="truncate text-sm font-medium text-foreground">{market.title}</p>
+							<p className="truncate text-xs text-muted-foreground">
+								{market.homeTeam} v {market.awayTeam} · {market.league}
+							</p>
+						</div>
+						<StatusPill tone={statusTone(market.status)} label={market.status} />
+					</div>
+					<div className="mt-2 space-y-1 text-xs">
+						<p className="truncate">
+							<span className="text-muted-foreground">Context API: </span>
+							<span className="font-mono text-foreground">{market.contextApiUrl}</span>
+						</p>
+						<p className="truncate">
+							<span className="text-muted-foreground">Market: </span>
+							<span className="font-mono text-foreground">{market.marketAddress ? short(market.marketAddress) : 'Awaiting testnet deploy'}</span>
+						</p>
+					</div>
+				</div>
+			))}
 		</div>
 	)
 }
 
-function JsonPreview({ label, value }: { label: string; value: unknown }) {
+function AgentRegistryTable({
+	agents,
+	markets,
+	selectedAgentId,
+	onSelect,
+}: {
+	agents: RegisteredAgent[]
+	markets: RegistryMarket[]
+	selectedAgentId: string | null
+	onSelect: (agentId: string) => void
+}) {
+	const marketTitle = (marketId: string) => markets.find((market) => market.marketId === marketId)?.title ?? marketId
+	if (agents.length === 0) {
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No agents yet. Create one below.</div>
+	}
 	return (
-		<div className="rounded-lg border border-border/60 bg-background/40 p-3">
-			<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-			<pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{JSON.stringify(value, null, 2)}</pre>
+		<div className="overflow-hidden rounded-lg border border-border/60">
+			<div className="grid grid-cols-[1.2fr_1fr_0.8fr_0.7fr] gap-3 border-b border-border/60 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+				<span>Agent</span>
+				<span>Market</span>
+				<span>Budget left</span>
+				<span>Status</span>
+			</div>
+			<div className="divide-y divide-border/60">
+				{agents.map((agent) => {
+					const left = (BigInt(agent.budgetAtomic) - BigInt(agent.spentAtomic)).toString()
+					return (
+						<button
+							type="button"
+							key={agent.agentId}
+							onClick={() => onSelect(agent.agentId)}
+							className={cn('grid w-full grid-cols-[1.2fr_1fr_0.8fr_0.7fr] items-center gap-3 px-3 py-3 text-left text-sm transition hover:bg-muted/25', selectedAgentId === agent.agentId && 'bg-primary/10')}
+						>
+							<span className="min-w-0">
+								<span className="block truncate font-medium text-foreground">{agent.name}</span>
+								<span className="block truncate text-xs text-muted-foreground">{agent.lastDecision ?? 'No run yet'}</span>
+							</span>
+							<span className="truncate text-muted-foreground">{marketTitle(agent.marketId)}</span>
+							<span className="truncate font-mono text-muted-foreground">{formatAtomicCollateral(left)}</span>
+							<span>
+								<Badge variant={agent.status === 'active' ? 'secondary' : 'outline'}>{agent.status}</Badge>
+							</span>
+						</button>
+					)
+				})}
+			</div>
+		</div>
+	)
+}
+
+function DecisionPanel({ run }: { run: AgentRun | null }) {
+	if (!run) {
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No run yet. Select an agent and run it.</div>
+	}
+	return (
+		<div className="space-y-3">
+			<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+				<Metric label="Decision" value={run.decision} detail={run.decisionReason} mono={false} />
+				<Metric label="Run status" value={run.status} detail={formatTime(run.createdAt)} mono={false} />
+				<Metric label="Trade side" value={run.tradeSide ?? 'None'} detail={formatAtomicCollateral(run.tradeAmountAtomic)} mono={false} />
+				<Metric label="Transaction" value={short(run.txHash)} detail={run.txHash ? 'Live testnet tx' : 'No tx submitted'} />
+			</div>
+			{run.contextSnapshot ? (
+				<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+					<Metric label="Model FOR" value={percent(run.contextSnapshot.modelProbabilityFor)} detail={run.contextSnapshot.matchState} mono={false} />
+					<Metric label="AMM FOR" value={percent(run.contextSnapshot.ammPriceFor)} detail={`${run.contextSnapshot.minute}' · ${run.contextSnapshot.score}`} mono={false} />
+					<Metric label="Edge" value={edge(run.contextSnapshot.edgeBps)} detail={run.contextSnapshot.headline} mono={false} />
+					<Metric label="Confidence" value={percent(run.contextSnapshot.confidence)} detail={run.contextSnapshot.source} mono={false} />
+				</div>
+			) : null}
 		</div>
 	)
 }
@@ -118,7 +207,7 @@ function Timeline({ events }: { events: AuditEvent[] }) {
 	}
 	return (
 		<div className="space-y-4">
-			{events.map((event) => (
+			{events.slice(0, 12).map((event) => (
 				<div className="grid grid-cols-[14px_1fr] gap-3" key={event.id}>
 					<span className={cn('mt-1.5 size-2.5 rounded-full shadow-[0_0_8px_currentColor]', TIMELINE_DOT[event.status] ?? 'bg-sky-400')} />
 					<div className="min-w-0">
@@ -143,24 +232,23 @@ function PairedDeviceCard({ state, busy, onReset }: { state: DemoState; busy: bo
 	const owner = state.device.owner
 	const ownerUrl = owner ? MONAD_NETWORK.explorer.addressUrl(owner) : undefined
 	return (
-		<div className="space-y-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
+		<div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
 			<div className="flex items-center gap-3">
 				<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
 					<CheckCircle2 aria-hidden="true" className="size-5" />
 				</span>
 				<div className="min-w-0 flex-1">
-					<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">GridPlus device paired</p>
-					<p className="truncate text-sm font-medium text-foreground">{state.device.deviceId ?? 'Hosted device'}</p>
-					<p className="truncate text-xs text-muted-foreground">{state.device.appName ?? 'Monad Agent Vault Demo'}</p>
+					<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Device paired</p>
+					<p className="truncate font-mono text-sm font-medium text-foreground">{short(owner)}</p>
+					{ownerUrl ? (
+						<a className="text-xs font-medium text-primary hover:underline" href={ownerUrl} rel="noreferrer" target="_blank">
+							View on Monadscan
+						</a>
+					) : null}
 				</div>
 				<Badge variant="secondary" className="border border-emerald-500/40 bg-emerald-500/15 text-emerald-200">
 					Ready
 				</Badge>
-			</div>
-			<div className="grid gap-2 sm:grid-cols-3">
-				<DetailItem label="Owner signer" value={short(owner)} href={ownerUrl} />
-				<DetailItem label="Relay" value={compactUrl(state.gridplus.connectRelayUrl)} />
-				<DetailItem label="Simulator MQTT" value={compactUrl(state.gridplus.simulatorMqttWsUrl)} />
 			</div>
 			<div className="flex flex-wrap gap-2">
 				<ExternalLinkButton href={state.gridplus.simulatorUrl}>Open hosted device</ExternalLinkButton>
@@ -172,93 +260,16 @@ function PairedDeviceCard({ state, busy, onReset }: { state: DemoState; busy: bo
 	)
 }
 
-function AgentRegistryTable({
-	agents,
-	markets,
-	selectedAgentId,
-	onSelect,
-}: {
-	agents: RegisteredAgent[]
-	markets: RegistryMarket[]
-	selectedAgentId: string | null
-	onSelect: (agentId: string) => void
-}) {
-	const marketTitle = (marketId: string) => markets.find((market) => market.marketId === marketId)?.title ?? marketId
-	if (agents.length === 0) {
-		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No agents registered.</div>
-	}
-	return (
-		<div className="overflow-hidden rounded-lg border border-border/60">
-			<div className="grid grid-cols-[1fr_1fr_1fr_0.8fr_0.8fr_0.7fr] gap-3 border-b border-border/60 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-				<span>Agent</span>
-				<span>User</span>
-				<span>Market</span>
-				<span>Budget</span>
-				<span>Spent</span>
-				<span>Status</span>
-			</div>
-			<div className="divide-y divide-border/60">
-				{agents.map((agent) => (
-					<button
-						type="button"
-						key={agent.agentId}
-						onClick={() => onSelect(agent.agentId)}
-						className={cn('grid w-full grid-cols-[1fr_1fr_1fr_0.8fr_0.8fr_0.7fr] gap-3 px-3 py-3 text-left text-sm transition hover:bg-muted/25', selectedAgentId === agent.agentId && 'bg-primary/10')}
-					>
-						<span className="min-w-0">
-							<span className="block truncate font-medium text-foreground">{agent.name}</span>
-							<span className="block truncate text-xs text-muted-foreground">{agent.lastDecision ?? 'No run'}</span>
-						</span>
-						<span className="truncate font-mono text-muted-foreground">{short(agent.ownerAddress)}</span>
-						<span className="truncate text-muted-foreground">{marketTitle(agent.marketId)}</span>
-						<span className="truncate font-mono text-muted-foreground">{formatAtomicCollateral(agent.budgetAtomic)}</span>
-						<span className="truncate font-mono text-muted-foreground">{formatAtomicCollateral(agent.spentAtomic)}</span>
-						<span>
-							<Badge variant={agent.status === 'active' ? 'secondary' : 'outline'}>{agent.status}</Badge>
-						</span>
-					</button>
-				))}
-			</div>
-		</div>
-	)
-}
-
-function DecisionPanel({ run }: { run: AgentRun | null }) {
-	if (!run) {
-		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No agent run recorded for the selected agent.</div>
-	}
-	return (
-		<div className="space-y-3">
-			<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-				<Metric label="Decision" value={run.decision} detail={run.decisionReason} mono={false} />
-				<Metric label="Run status" value={run.status} detail={formatTime(run.createdAt)} mono={false} />
-				<Metric label="Trade side" value={run.tradeSide ?? 'None'} detail={formatAtomicCollateral(run.tradeAmountAtomic)} mono={false} />
-				<Metric label="Transaction" value={short(run.txHash)} detail={run.txHash ? 'Live testnet tx' : 'No tx submitted'} />
-			</div>
-			{run.contextSnapshot ? (
-				<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-					<Metric label="Model FOR" value={percent(run.contextSnapshot.modelProbabilityFor)} detail={run.contextSnapshot.matchState} mono={false} />
-					<Metric label="AMM FOR" value={percent(run.contextSnapshot.ammPriceFor)} detail={`${run.contextSnapshot.minute}' · ${run.contextSnapshot.score}`} mono={false} />
-					<Metric label="Edge" value={edge(run.contextSnapshot.edgeBps)} detail={run.contextSnapshot.headline} mono={false} />
-					<Metric label="Confidence" value={percent(run.contextSnapshot.confidence)} detail={run.contextSnapshot.source} mono={false} />
-				</div>
-			) : null}
-			<div className="grid gap-2 lg:grid-cols-2">
-				<JsonPreview label="Context payload" value={run.contextSnapshot ?? { status: 'not fetched' }} />
-				<JsonPreview label="Agent trace" value={run.llmTrace ?? { status: run.error ?? 'not available' }} />
-			</div>
-		</div>
-	)
-}
+const emptyForm = { name: '', prompt: '', marketId: '', budget: '5', maxTrade: '1', minEdge: '300', interval: '60' }
 
 export function App() {
 	const [state, setState] = useState<DemoState | null>(null)
 	const [delegate, setDelegate] = useState('')
 	const [deviceId, setDeviceId] = useState('')
-	const [appName, setAppName] = useState('Monad Agent Vault Demo')
+	const [appName, setAppName] = useState('AI Agentic Gambling')
 	const [pairingCode, setPairingCode] = useState('')
-	const [testMessage, setTestMessage] = useState('Hello World')
 	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+	const [form, setForm] = useState(emptyForm)
 	const [busy, setBusy] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 
@@ -269,7 +280,7 @@ export function App() {
 			setSelectedAgentId((current) => current ?? next.registeredAgents[0]?.agentId ?? null)
 			setDelegate((current) => current || next.vault.delegate || '')
 			setDeviceId((current) => current || next.device.deviceId || '')
-			setAppName((current) => current || next.device.appName || 'Monad Agent Vault Demo')
+			setForm((current) => (current.marketId ? current : { ...current, marketId: next.registryMarkets[0]?.marketId ?? '' }))
 			setError(null)
 		} catch (err) {
 			setError(formatError(err))
@@ -309,12 +320,36 @@ export function App() {
 	}
 
 	const selectedAgent = useMemo(() => state?.registeredAgents.find((agent) => agent.agentId === selectedAgentId) ?? state?.registeredAgents[0] ?? null, [selectedAgentId, state?.registeredAgents])
-	const selectedMarket = useMemo(() => state?.registryMarkets.find((market) => market.marketId === selectedAgent?.marketId) ?? state?.registryMarkets[0] ?? null, [selectedAgent?.marketId, state?.registryMarkets])
+	const selectedMarket = useMemo(() => state?.registryMarkets.find((market) => market.marketId === selectedAgent?.marketId) ?? null, [selectedAgent?.marketId, state?.registryMarkets])
 	const selectedRuns = useMemo(() => state?.agentRuns.filter((run) => run.agentId === selectedAgent?.agentId) ?? [], [selectedAgent?.agentId, state?.agentRuns])
 	const selectedRun = selectedRuns[0] ?? null
 	const selectedDeviceId = deviceId || state?.device.deviceId || ''
-	const selectedAppName = appName || state?.device.appName || 'Monad Agent Vault Demo'
+	const selectedAppName = appName || state?.device.appName || 'AI Agentic Gambling'
 	const selectedRemaining = selectedAgent ? (BigInt(selectedAgent.budgetAtomic) - BigInt(selectedAgent.spentAtomic)).toString() : null
+
+	const canCreateAgent = Boolean(state?.device.owner) && form.name.trim().length > 0 && form.prompt.trim().length > 0 && Boolean(form.marketId)
+	const createAgent = () => {
+		const owner = state?.device.owner
+		if (!owner || !canCreateAgent) return
+		const agentId = crypto.randomUUID()
+		void run('create-agent', async () => {
+			const result = await postAction('/agents', {
+				agentId,
+				name: form.name.trim(),
+				ownerAddress: owner,
+				delegatedEoa: owner,
+				marketId: form.marketId,
+				prompt: form.prompt.trim(),
+				budgetAtomic: toAtomic(form.budget),
+				maxTradeAtomic: toAtomic(form.maxTrade),
+				minEdgeBps: Math.max(0, Math.round(Number(form.minEdge) || 0)),
+				intervalSeconds: Math.max(0, Math.round(Number(form.interval) || 0)),
+			})
+			setSelectedAgentId(agentId)
+			setForm((current) => ({ ...current, name: '', prompt: '' }))
+			return result
+		})
+	}
 
 	if (!state) {
 		return (
@@ -341,13 +376,12 @@ export function App() {
 						</p>
 						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">AI Agentic Gambling</h1>
 						<p className="mt-3 max-w-2xl text-balance text-sm text-muted-foreground sm:text-base">
-							Device-signed mandates govern SQLite-registered agents that read live World Cup market context on Monad testnet and execute bounded prediction-market bets through an EIP-7702 wallet.
+							Device-signed mandates govern SQLite-registered agents that read live World Cup market context on Monad testnet and place bounded prediction-market bets through an EIP-7702 wallet.
 						</p>
 					</div>
 					<div className="flex flex-wrap gap-2 md:justify-end">
 						<StatusPill tone="info" label={MONAD_NETWORK.caip2} />
 						<StatusPill tone={state.rpcConfigured ? 'success' : 'warning'} label={state.rpcConfigured ? 'RPC ready' : 'RPC missing'} />
-						<StatusPill tone={state.registryMarkets.length > 0 ? 'success' : 'warning'} label={`${state.registryMarkets.length} market${state.registryMarkets.length === 1 ? '' : 's'}`} />
 					</div>
 				</header>
 
@@ -362,8 +396,8 @@ export function App() {
 					<Card>
 						<CardHeader>
 							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Controls</p>
-							<CardTitle className="text-lg">Run the agent story</CardTitle>
-							<CardDescription>Device pairing, EIP-7702 delegation, agent run, revoke, and cleanup.</CardDescription>
+							<CardTitle className="text-lg">Pair, delegate, run</CardTitle>
+							<CardDescription>Connect a device, enable the EIP-7702 vault, then run or revoke the selected agent.</CardDescription>
 							<CardAction>
 								<Badge variant={state.device.paired ? 'secondary' : 'outline'}>{deviceModeLabel(state.device.mode)}</Badge>
 							</CardAction>
@@ -396,28 +430,6 @@ export function App() {
 								</div>
 							)}
 
-							<div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
-								<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-									<div>
-										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Test signature</p>
-										<p className="text-sm text-muted-foreground">Readable ASCII signing path.</p>
-									</div>
-									<Badge variant={state.lastTestSignature ? 'secondary' : 'outline'}>{state.lastTestSignature ? 'Signed' : 'Ready'}</Badge>
-								</div>
-								<div className="flex flex-wrap gap-2">
-									<Input className="min-w-[220px] flex-1" aria-label="Test message" value={testMessage} onChange={(event) => setTestMessage(event.target.value)} />
-									<ActionButton icon={MessageSquareText} variant="outline" onClick={() => run('test-sign', () => postAction('/device/sign-test', { message: testMessage }))} disabled={Boolean(busy) || !state.device.owner || !testMessage.trim()}>
-										Sign test message
-									</ActionButton>
-								</div>
-								{state.lastTestSignature ? (
-									<div className="rounded-lg border border-border/60 bg-background/40 p-3">
-										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signed payload</p>
-										<pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{state.lastTestSignature.payload}</pre>
-									</div>
-								) : null}
-							</div>
-
 							<div className="flex flex-wrap gap-2">
 								<Input className="min-w-[220px] flex-1" aria-label="Delegate contract" placeholder="Optional AgentVaultDelegate address" value={delegate} onChange={(event) => setDelegate(event.target.value)} />
 								<ActionButton icon={KeyRound} onClick={() => run('authorize', () => postAction('/vault/authorize-7702', delegate ? { delegate } : {}))} disabled={Boolean(busy) || !state.device.owner}>
@@ -432,14 +444,8 @@ export function App() {
 								<ActionButton icon={Play} onClick={() => selectedAgent && run('agent-run', () => postAction(`/agents/${selectedAgent.agentId}/run`, { mode: 'dry-run' }))} disabled={Boolean(busy) || !selectedAgent}>
 									Run selected agent
 								</ActionButton>
-								<ActionButton icon={Brain} variant="outline" onClick={() => run('runner-tick', () => postAction('/runner/tick', { mode: 'dry-run' }))} disabled={Boolean(busy)}>
-									Run due agents
-								</ActionButton>
 								<ActionButton icon={ShieldOff} variant="outline" onClick={() => selectedAgent && run('revoke-agent', () => postAction(`/agents/${selectedAgent.agentId}/revoke`))} disabled={Boolean(busy) || !selectedAgent || selectedAgent.status === 'revoked'}>
 									Revoke selected
-								</ActionButton>
-								<ActionButton icon={Trash2} variant="destructive" onClick={() => run('revoke', () => postAction('/mandates/revoke'))} disabled={Boolean(busy) || !state.mandate}>
-									Revoke mandate
 								</ActionButton>
 								<ActionButton icon={RefreshCw} variant="outline" onClick={() => run('clear', () => postAction('/vault/clear-delegation'))} disabled={Boolean(busy) || !state.device.owner}>
 									Clear delegation
@@ -457,9 +463,9 @@ export function App() {
 
 					<Card>
 						<CardHeader>
-							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Vault</p>
-							<CardTitle className="text-lg">Testnet status</CardTitle>
-							<CardDescription>Device, delegation, API, and selected-agent budget state.</CardDescription>
+							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Status</p>
+							<CardTitle className="text-lg">Vault & budget</CardTitle>
+							<CardDescription>Device, delegation, and the selected agent's spend.</CardDescription>
 							<CardAction>
 								<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
 									<WalletCards className="size-5" />
@@ -468,14 +474,10 @@ export function App() {
 						</CardHeader>
 						<CardContent>
 							<div className="grid gap-2 sm:grid-cols-2">
-								<Metric label="Owner EOA" value={short(state.device.owner)} detail={state.device.paired ? `${state.device.deviceId ?? 'Device'} paired` : 'Connect required'} />
-								<Metric label="Delegate" value={short(state.vault.delegate)} detail={state.vault.delegated ? 'Active code detected/submitted' : 'Not active'} />
-								<Metric label="Selected budget left" value={formatAtomicCollateral(selectedRemaining)} detail={selectedAgent?.status ?? 'No agent'} />
-								<Metric label="Demo API" value={compactUrl(API_BASE_URL)} detail="Standalone orchestration backend" />
-								<Metric label="SQLite markets" value={String(state.registryMarkets.length)} detail="Local backend database" mono={false} />
-								<Metric label="Agent runs" value={String(state.agentRuns.length)} detail="Persisted runner traces" mono={false} />
-								<Metric label="Device relay" value={compactUrl(state.gridplus.connectRelayUrl)} detail="Production GridPlus signing relay" />
-								<Metric label="Simulator MQTT" value={compactUrl(state.gridplus.simulatorMqttWsUrl)} detail="Production Web MQTT broker" />
+								<Metric label="Owner EOA" value={short(state.device.owner)} detail={state.device.paired ? 'Device paired' : 'Connect required'} />
+								<Metric label="Delegation" value={state.vault.delegated ? 'Active' : 'Not active'} detail={short(state.vault.delegate)} mono={false} />
+								<Metric label="Mandate" value={state.mandate ? (state.mandate.revoked ? 'Revoked' : 'Signed') : 'None'} detail={state.mandate ? 'GridPlus device-signed' : 'Sign to set budget'} mono={false} />
+								<Metric label="Selected budget left" value={formatAtomicCollateral(selectedRemaining)} detail={selectedAgent?.name ?? 'No agent'} />
 							</div>
 						</CardContent>
 					</Card>
@@ -483,9 +485,25 @@ export function App() {
 
 				<Card>
 					<CardHeader>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Markets</p>
+						<CardTitle className="text-lg">SQLite markets</CardTitle>
+						<CardDescription>World Cup prediction markets stored in the backend, with each market's context API.</CardDescription>
+						<CardAction>
+							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+								<Goal className="size-5" />
+							</span>
+						</CardAction>
+					</CardHeader>
+					<CardContent>
+						<MarketsList markets={state.registryMarkets} />
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
 						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Registry</p>
 						<CardTitle className="text-lg">Agent Registry</CardTitle>
-						<CardDescription>SQLite-backed agents with owner, market, prompt, budget, spent amount, and status.</CardDescription>
+						<CardDescription>SQLite-backed agents. Select one to run it; the agent's prompt is what the decision agent evaluates.</CardDescription>
 						<CardAction>
 							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
 								<Database className="size-5" />
@@ -497,38 +515,88 @@ export function App() {
 					</CardContent>
 				</Card>
 
+				<Card>
+					<CardHeader>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Prompt an agent</p>
+						<CardTitle className="text-lg">Create a new agent</CardTitle>
+						<CardDescription>Author the prompt and bounds. It's stored in SQLite, owned by your paired device EOA, and ready to run.</CardDescription>
+						<CardAction>
+							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+								<PlusCircle className="size-5" />
+							</span>
+						</CardAction>
+					</CardHeader>
+					<CardContent className="space-y-3">
+						<div className="grid gap-2 sm:grid-cols-2">
+							<Input aria-label="Agent name" placeholder="Agent name, e.g. Value Hunter" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+							<select aria-label="Market" className={fieldClass} value={form.marketId} onChange={(event) => setForm((current) => ({ ...current, marketId: event.target.value }))}>
+								{state.registryMarkets.length === 0 ? <option value="">No markets</option> : null}
+								{state.registryMarkets.map((market) => (
+									<option key={market.marketId} value={market.marketId}>
+										{market.title}
+									</option>
+								))}
+							</select>
+						</div>
+						<textarea
+							aria-label="Agent prompt"
+							value={form.prompt}
+							maxLength={400}
+							onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
+							placeholder="Prompt the agent… e.g. Buy FOR when model edge is above 4% and confidence is at least 65%. Never spend more than 1 MockUSDC per run."
+							className={cn(fieldClass, 'h-auto min-h-20 resize-y py-2 leading-relaxed')}
+						/>
+						<div className="grid gap-2 sm:grid-cols-4">
+							<label className="space-y-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Budget (MockUSDC)
+								<Input aria-label="Budget" inputMode="decimal" value={form.budget} onChange={(event) => setForm((current) => ({ ...current, budget: event.target.value }))} />
+							</label>
+							<label className="space-y-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Max trade (MockUSDC)
+								<Input aria-label="Max trade" inputMode="decimal" value={form.maxTrade} onChange={(event) => setForm((current) => ({ ...current, maxTrade: event.target.value }))} />
+							</label>
+							<label className="space-y-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Min edge (bps)
+								<Input aria-label="Min edge bps" inputMode="numeric" value={form.minEdge} onChange={(event) => setForm((current) => ({ ...current, minEdge: event.target.value }))} />
+							</label>
+							<label className="space-y-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Interval (s)
+								<Input aria-label="Interval seconds" inputMode="numeric" value={form.interval} onChange={(event) => setForm((current) => ({ ...current, interval: event.target.value }))} />
+							</label>
+						</div>
+						<div className="flex items-center justify-between gap-3">
+							<p className="text-xs text-muted-foreground">{state.device.owner ? 'Owned by your paired device EOA.' : 'Pair a device to create an agent.'}</p>
+							<ActionButton icon={PlusCircle} onClick={createAgent} disabled={Boolean(busy) || !canCreateAgent}>
+								Create agent
+							</ActionButton>
+						</div>
+					</CardContent>
+				</Card>
+
 				<section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
 					<Card>
 						<CardHeader>
 							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Agent</p>
 							<CardTitle className="text-lg">{selectedAgent?.name ?? 'No agent selected'}</CardTitle>
-							<CardDescription>{selectedMarket?.title ?? 'No market selected'}</CardDescription>
+							<CardDescription>{selectedMarket?.title ?? 'Select an agent from the registry'}</CardDescription>
 							<CardAction>{selectedAgent ? <StatusPill tone={statusTone(selectedAgent.status)} label={selectedAgent.status} /> : null}</CardAction>
 						</CardHeader>
 						<CardContent className="space-y-3">
 							{selectedAgent ? (
 								<>
-									<div className="grid gap-2 sm:grid-cols-2">
-										<Metric label="Owner" value={short(selectedAgent.ownerAddress)} />
-										<Metric label="Delegated EOA" value={short(selectedAgent.delegatedEoa)} />
-										<Metric label="Budget" value={formatAtomicCollateral(selectedAgent.budgetAtomic)} />
-										<Metric label="Spent" value={formatAtomicCollateral(selectedAgent.spentAtomic)} />
-										<Metric label="Max trade" value={formatAtomicCollateral(selectedAgent.maxTradeAtomic)} />
-										<Metric label="Next run" value={formatTime(selectedAgent.nextRunAt)} mono={false} />
-									</div>
 									<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
 										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Prompt</p>
 										<p className="mt-2 text-sm leading-relaxed text-foreground">{selectedAgent.prompt}</p>
 									</div>
 									<div className="grid gap-2 sm:grid-cols-2">
-										<Metric label="Prompt hash" value={selectedAgent.promptHash} />
-										<Metric label="Prompt URI" value={selectedAgent.promptUri} />
-										<Metric label="Market address" value={short(selectedMarket?.marketAddress)} detail={selectedMarket?.marketAddress ? 'Verified before live mode' : 'Awaiting testnet deployment'} />
-										<Metric label="Context API" value={selectedMarket?.contextApiUrl ?? 'Not set'} />
+										<Metric label="Budget" value={formatAtomicCollateral(selectedAgent.budgetAtomic)} />
+										<Metric label="Spent" value={formatAtomicCollateral(selectedAgent.spentAtomic)} />
+										<Metric label="Max trade" value={formatAtomicCollateral(selectedAgent.maxTradeAtomic)} />
+										<Metric label="Min edge" value={edge(selectedAgent.minEdgeBps)} mono={false} />
 									</div>
 								</>
 							) : (
-								<div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">Select an agent from the registry.</div>
+								<div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">Select an agent from the registry, or create one above.</div>
 							)}
 						</CardContent>
 					</Card>
@@ -537,7 +605,7 @@ export function App() {
 						<CardHeader>
 							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Decision</p>
 							<CardTitle className="text-lg">Latest run</CardTitle>
-							<CardDescription>Fetched context, prompt trace, decision, trade side, and execution status.</CardDescription>
+							<CardDescription>Market context, decision, trade side, and execution status for the selected agent.</CardDescription>
 							<CardAction>
 								<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
 									<FileJson className="size-5" />
@@ -552,35 +620,9 @@ export function App() {
 
 				<Card>
 					<CardHeader>
-						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Runner</p>
-						<CardTitle className="text-lg">Execution board</CardTitle>
-						<CardDescription>Current backend runner stages for the latest action.</CardDescription>
-						<CardAction>
-							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-								<CircleDollarSign className="size-5" />
-							</span>
-						</CardAction>
-					</CardHeader>
-					<CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-						{Object.entries(state.agents).map(([name, status]) => (
-							<div className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 p-3" key={name}>
-								<span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', status === 'complete' || status === 'approved' ? 'bg-emerald-500/15 text-emerald-300' : status === 'blocked' || status === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-muted text-muted-foreground')}>
-									{status === 'complete' || status === 'approved' ? <CheckCircle2 className="size-4" /> : status === 'blocked' || status === 'error' ? <XCircle className="size-4" /> : <Bot className="size-4" />}
-								</span>
-								<div className="min-w-0">
-									<p className="truncate text-sm font-medium text-foreground">{name}</p>
-									<p className="text-xs capitalize text-muted-foreground">{status}</p>
-								</div>
-							</div>
-						))}
-					</CardContent>
-				</Card>
-
-				<Card>
-					<CardHeader>
 						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Audit</p>
 						<CardTitle className="text-lg">Timeline</CardTitle>
-						<CardDescription>Device signatures, registry reads, context fetches, decisions, revokes, and cleanup actions.</CardDescription>
+						<CardDescription>Pair, delegate, run, trade, block, revoke, and cleanup actions.</CardDescription>
 					</CardHeader>
 					<CardContent>
 						<Timeline events={state.events} />
