@@ -3,7 +3,8 @@ import type { DemoState } from '@gridplus-monad-agent-vault/shared'
 const PRODUCTION_API_BASE_URL = 'https://monad-agent-vault-api.onrender.com'
 const LOCAL_API_BASE_URL = 'http://localhost:10000'
 const urlParams = new URLSearchParams(window.location.search)
-const API_BASE_URL = urlParams.get('api') === 'local' ? LOCAL_API_BASE_URL : PRODUCTION_API_BASE_URL
+const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const API_BASE_URL = urlParams.get('api') === 'local' ? LOCAL_API_BASE_URL : urlParams.get('api') === 'prod' ? PRODUCTION_API_BASE_URL : isLocalHost ? LOCAL_API_BASE_URL : PRODUCTION_API_BASE_URL
 
 export function formatError(error: unknown): string {
 	if (error instanceof Error) {
