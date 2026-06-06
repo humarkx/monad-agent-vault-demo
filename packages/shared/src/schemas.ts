@@ -48,6 +48,15 @@ export const policyDecisionSchema = z.object({
 })
 export type PolicyDecision = z.infer<typeof policyDecisionSchema>
 
+export const testSignatureSchema = z.object({
+	owner: addressSchema,
+	message: z.string().min(1),
+	payload: z.string().min(1),
+	nonce: bytes32Schema,
+	signature: z.string().regex(/^0x[a-fA-F0-9]+$/),
+})
+export type TestSignature = z.infer<typeof testSignatureSchema>
+
 export const x402ChallengeSchema = z.object({
 	status: z.literal(402),
 	scheme: z.literal('exact'),
@@ -102,6 +111,7 @@ export const demoStateSchema = z.object({
 	lastPolicyDecision: policyDecisionSchema.nullable(),
 	lastServiceResult: z.string().nullable(),
 	lastTxHash: txHashSchema.nullable(),
+	lastTestSignature: testSignatureSchema.nullable(),
 })
 export type DemoState = z.infer<typeof demoStateSchema>
 
@@ -129,3 +139,8 @@ export const signMandateRequestSchema = z.object({
 	expiresInSeconds: z.number().int().positive().default(3600),
 })
 export type SignMandateRequest = z.infer<typeof signMandateRequestSchema>
+
+export const signTestMessageRequestSchema = z.object({
+	message: z.string().min(1).max(256).default('Hello World'),
+})
+export type SignTestMessageRequest = z.infer<typeof signTestMessageRequestSchema>

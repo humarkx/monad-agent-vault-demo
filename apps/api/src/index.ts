@@ -6,11 +6,19 @@ import { routes } from './routes'
 
 const app = new Hono()
 const allowedOrigins = new Set(config.API_CORS_ORIGINS)
+const isLocalViteOrigin = (origin: string): boolean => {
+	try {
+		const url = new URL(origin)
+		return url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1') && url.port.startsWith('517')
+	} catch {
+		return false
+	}
+}
 
 app.use(
 	'*',
 	cors({
-		origin: (origin) => (allowedOrigins.has(origin) ? origin : undefined),
+		origin: (origin) => (allowedOrigins.has(origin) || isLocalViteOrigin(origin) ? origin : undefined),
 		allowHeaders: ['Content-Type', 'Authorization'],
 		allowMethods: ['GET', 'POST', 'OPTIONS'],
 	}),

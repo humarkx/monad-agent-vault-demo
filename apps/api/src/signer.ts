@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { Client, fetchAddress, pair, setup, signAuthorization as gridplusSignAuthorization, signMessage } from 'gridplus-sdk'
+import { Client, fetchAddress, pair, setup, signAuthorization as gridplusSignAuthorization, signMessage as gridplusSignMessage } from 'gridplus-sdk'
 import { privateKeyToAccount } from 'viem/accounts'
 import type { Address, Authorization, Hex } from 'viem'
 import { agentMandateTypes, buildAgentMandateTypedData, type AgentMandate, type DeviceMode, MONAD_MAINNET } from '@gridplus-monad-agent-vault/shared'
@@ -227,7 +227,19 @@ export async function signMandate(params: { mode: DeviceMode; mandate: AgentMand
 		})
 	}
 
-	return signDataToHex(await signMessage(buildAgentMandateTypedData(params.mandate)))
+	return signDataToHex(await gridplusSignMessage(buildAgentMandateTypedData(params.mandate)))
+}
+
+export function buildReadableTestSignPayload(params: { owner: Address; message: string; nonce: Hex }): string {
+	return [`GridPlus Monad Agent Vault test signature`, `Message: ${params.message}`, `Network: ${MONAD_MAINNET.name} (${MONAD_MAINNET.caip2})`, `Owner: ${params.owner}`, `Nonce: ${params.nonce}`].join('\n')
+}
+
+export async function signTestMessage(params: { mode: DeviceMode; payload: string }): Promise<Hex> {
+	if (params.mode === 'local-signer') {
+		return localSignerAccount().signMessage({ message: params.payload })
+	}
+
+	return signDataToHex(await gridplusSignMessage(params.payload))
 }
 
 export function createNonce(): Hex {

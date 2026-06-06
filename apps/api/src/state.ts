@@ -39,6 +39,7 @@ const defaultState: DemoState = demoStateSchema.parse({
 	lastPolicyDecision: null,
 	lastServiceResult: null,
 	lastTxHash: null,
+	lastTestSignature: null,
 })
 
 let state = defaultState

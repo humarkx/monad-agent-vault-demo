@@ -8,12 +8,13 @@ import {
 	deviceSetupRequestSchema,
 	MONAD_MAINNET,
 	signMandateRequestSchema,
+	signTestMessageRequestSchema,
 } from '@gridplus-monad-agent-vault/shared'
 import { buildResearchChallenge, createX402FetchClientDescription, runAgentDemo } from './agent'
 import { config } from './config'
 import { getDelegatedCode, getPublicClient, rpcConfigured, submitAuthorizationTransaction } from './monad'
 import { addEvent, getActiveMandate, getState, patchState } from './state'
-import { createNonce, getStoredDeviceContext, pairDevice, resetDeviceSession, setupDevice, sign7702Authorization, signMandate } from './signer'
+import { buildReadableTestSignPayload, createNonce, getStoredDeviceContext, pairDevice, resetDeviceSession, setupDevice, sign7702Authorization, signMandate, signTestMessage } from './signer'
 
 const jsonBody = async (c: { req: { json: () => Promise<unknown> } }) => {
 	try {
@@ -102,6 +103,27 @@ routes.post('/device/reset-session', (c) => {
 	})
 	addEvent({ actor: 'GridPlus', title: 'Device session reset', detail: 'Stored SDK session was cleared. Connect the device again before pairing.', status: 'warning' })
 	return c.json({ state: getState() })
+})
+
+routes.post('/device/sign-test', async (c) => {
+	const input = signTestMessageRequestSchema.parse(await jsonBody(c))
+	const state = getState()
+	if (!state.device.owner) {
+		throw new Error('Pair a GridPlus device before signing a test message.')
+	}
+
+	const nonce = createNonce()
+	const payload = buildReadableTestSignPayload({ owner: state.device.owner as Address, message: input.message, nonce })
+	const signed = {
+		owner: state.device.owner,
+		message: input.message,
+		payload,
+		nonce,
+		signature: await signTestMessage({ mode: state.device.mode, payload }),
+	}
+	patchState({ lastTestSignature: signed })
+	addEvent({ actor: 'GridPlus', title: 'Test message signed', detail: `Device signed "${input.message}".`, status: 'success' })
+	return c.json({ signed, state: getState() })
 })
 
 routes.post('/vault/authorize-7702', async (c) => {

@@ -1,6 +1,13 @@
 import { AGENT_VAULT_EIP712, MONAD_MAINNET } from './constants'
 import type { AgentMandate } from './schemas'
 
+const eip712DomainTypes = [
+	{ name: 'name', type: 'string' },
+	{ name: 'version', type: 'string' },
+	{ name: 'chainId', type: 'uint256' },
+	{ name: 'verifyingContract', type: 'address' },
+] as const
+
 export const agentMandateTypes = {
 	AgentMandate: [
 		{ name: 'owner', type: 'address' },
@@ -19,12 +26,7 @@ export const agentMandateTypes = {
 export function buildAgentMandateTypedData(mandate: AgentMandate) {
 	return {
 		types: {
-			EIP712Domain: [
-				{ name: 'name', type: 'string' },
-				{ name: 'version', type: 'string' },
-				{ name: 'chainId', type: 'uint256' },
-				{ name: 'verifyingContract', type: 'address' },
-			],
+			EIP712Domain: eip712DomainTypes,
 			...agentMandateTypes,
 		},
 		domain: {

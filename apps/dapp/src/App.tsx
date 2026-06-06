@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Bot, CheckCircle2, CircleDollarSign, ExternalLink, KeyRound, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, CheckCircle2, CircleDollarSign, ExternalLink, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MONAD_MAINNET, type AgentName, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
 import { API_BASE_URL, formatError, getState, postAction } from './api'
@@ -185,6 +185,7 @@ export function App() {
 	const [deviceId, setDeviceId] = useState('')
 	const [appName, setAppName] = useState('Monad Agent Vault Demo')
 	const [pairingCode, setPairingCode] = useState('')
+	const [testMessage, setTestMessage] = useState('Hello World')
 	const [busy, setBusy] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 
@@ -328,6 +329,38 @@ export function App() {
 									</div>
 								</div>
 							)}
+
+							<div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+								<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+									<div>
+										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Test signature</p>
+										<p className="text-sm text-muted-foreground">Send a readable Hello World message through the paired GridPlus signing path.</p>
+									</div>
+									<Badge variant={state.lastTestSignature ? 'secondary' : 'outline'}>{state.lastTestSignature ? 'Signed' : 'Ready'}</Badge>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									<Input className="min-w-[220px] flex-1" aria-label="Test message" value={testMessage} onChange={(event) => setTestMessage(event.target.value)} />
+									<ActionButton icon={MessageSquareText} variant="outline" onClick={() => run('test-sign', () => postAction('/device/sign-test', { message: testMessage }))} disabled={Boolean(busy) || !state.device.owner || !testMessage.trim()}>
+										Sign test message
+									</ActionButton>
+								</div>
+								{state.lastTestSignature ? (
+									<div className="space-y-2">
+										<div className="grid gap-2 sm:grid-cols-2">
+											<Metric label="Message" value={state.lastTestSignature.message} mono={false} />
+											<Metric label="Nonce" value={state.lastTestSignature.nonce} />
+										</div>
+										<div className="rounded-lg border border-border/60 bg-background/40 p-3">
+											<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signed payload</p>
+											<pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{state.lastTestSignature.payload}</pre>
+										</div>
+										<div className="rounded-lg border border-border/60 bg-background/40 p-3">
+											<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signature</p>
+											<p className="mt-2 break-all font-mono text-xs leading-relaxed text-foreground">{state.lastTestSignature.signature}</p>
+										</div>
+									</div>
+								) : null}
+							</div>
 
 							<div className="flex flex-wrap gap-2">
 								<Input className="min-w-[220px] flex-1" aria-label="Delegate contract" placeholder="AgentVaultDelegate address" value={delegate} onChange={(event) => setDelegate(event.target.value)} />
