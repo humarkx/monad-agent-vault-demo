@@ -253,8 +253,21 @@ export async function signMandate(params: { mode: DeviceMode; mandate: AgentMand
 	return signDataToHex(await gridplusSignMessage(buildAgentMandateTypedData(params.mandate)))
 }
 
+const toLatticePersonalSignText = (value: string): string =>
+	Array.from(value)
+		.map((character) => {
+			const codePoint = character.codePointAt(0)
+			if (codePoint === undefined) return ''
+			if (codePoint === 9) return '\\t'
+			if (codePoint === 10) return '\\n'
+			if (codePoint === 13) return '\\r'
+			if (codePoint >= 32 && codePoint <= 126) return character
+			return `\\u{${codePoint.toString(16)}}`
+		})
+		.join('')
+
 export function buildReadableTestSignPayload(params: { owner: Address; message: string; nonce: Hex }): string {
-	return [`GridPlus Monad Agent Vault test signature`, `Message: ${params.message}`, `Network: ${MONAD_MAINNET.name} (${MONAD_MAINNET.caip2})`, `Owner: ${params.owner}`, `Nonce: ${params.nonce}`].join('\n')
+	return [`GridPlus Monad Agent Vault test signature`, `Message: ${toLatticePersonalSignText(params.message)}`, `Network: ${MONAD_MAINNET.name} (${MONAD_MAINNET.caip2})`, `Owner: ${params.owner}`, `Nonce: ${params.nonce}`].join(' | ')
 }
 
 export async function signTestMessage(params: { mode: DeviceMode; payload: string }): Promise<Hex> {
