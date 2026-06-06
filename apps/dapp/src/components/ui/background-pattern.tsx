@@ -8,7 +8,7 @@ import { cn } from '../../lib/utils'
 export type BackgroundPatternTone = 'default' | 'info' | 'success' | 'warning'
 
 const TONE_STYLES: Record<BackgroundPatternTone, string> = {
-	default: 'radial-gradient(ellipse at top, rgba(63, 183, 231, 0.18) 0%, transparent 60%)',
+	default: 'radial-gradient(ellipse at top, rgba(34, 197, 94, 0.2) 0%, transparent 60%)',
 	info: 'radial-gradient(ellipse at top, rgba(96, 165, 250, 0.18) 0%, transparent 60%)',
 	success: 'radial-gradient(ellipse at top, rgba(16, 185, 129, 0.18) 0%, transparent 60%)',
 	warning: 'radial-gradient(ellipse at top, rgba(234, 179, 8, 0.18) 0%, transparent 60%)',

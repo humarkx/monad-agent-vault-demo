@@ -19,7 +19,7 @@ export const mandateSchema = z.object({
 	owner: addressSchema,
 	agent: addressSchema,
 	delegate: addressSchema,
-	token: addressSchema.default(MONAD_MAINNET.usdc.address),
+	token: addressSchema.default(MONAD_MAINNET.testCollateral.address),
 	merchant: addressSchema.default(DEMO_SERVICE.merchant),
 	serviceHash: bytes32Schema.default(DEMO_SERVICE.serviceHash),
 	maxTotalAtomic: decimalAtomicSchema,
@@ -72,6 +72,7 @@ export const x402ChallengeSchema = z.object({
 export type X402Challenge = z.infer<typeof x402ChallengeSchema>
 
 export const marketIdSchema = z.string().min(1)
+export const nullableAddressSchema = addressSchema.nullable()
 
 export const eventMarketSchema = z.object({
 	marketId: marketIdSchema,
@@ -83,6 +84,111 @@ export const eventMarketSchema = z.object({
 	kickoff: z.string(),
 })
 export type EventMarket = z.infer<typeof eventMarketSchema>
+
+export const registryMarketStatusSchema = z.enum(['draft', 'open', 'paused', 'resolved'])
+export type RegistryMarketStatus = z.infer<typeof registryMarketStatusSchema>
+
+export const registryMarketSchema = z.object({
+	marketId: marketIdSchema,
+	slug: z.string().min(1),
+	title: z.string().min(1),
+	question: z.string().min(1),
+	league: z.string().min(1),
+	homeTeam: z.string().min(1),
+	awayTeam: z.string().min(1),
+	kickoff: z.string().min(1),
+	marketAddress: nullableAddressSchema,
+	ammAddress: nullableAddressSchema,
+	collateralTokenAddress: nullableAddressSchema,
+	contextApiUrl: z.string().min(1),
+	contextSchema: z.string().min(1),
+	status: registryMarketStatusSchema,
+	createdAt: z.string(),
+	updatedAt: z.string(),
+})
+export type RegistryMarket = z.infer<typeof registryMarketSchema>
+
+export const marketContextSchema = z.object({
+	marketId: marketIdSchema,
+	source: z.string().min(1),
+	timestamp: z.number().int().positive(),
+	minute: z.number().int().nonnegative(),
+	score: z.string().min(1),
+	matchState: z.string().min(1),
+	headline: z.string().min(1),
+	modelProbabilityFor: z.number().min(0).max(1),
+	modelProbabilityAgainst: z.number().min(0).max(1),
+	ammPriceFor: z.number().min(0).max(1),
+	ammPriceAgainst: z.number().min(0).max(1),
+	edgeBps: z.number().int(),
+	confidence: z.number().min(0).max(1),
+	liquidityAtomic: decimalAtomicSchema,
+	volumeAtomic: decimalAtomicSchema,
+})
+export type MarketContext = z.infer<typeof marketContextSchema>
+
+export const registeredAgentStatusSchema = z.enum(['active', 'paused', 'revoked', 'blocked'])
+export type RegisteredAgentStatus = z.infer<typeof registeredAgentStatusSchema>
+
+export const agentDecisionSchema = z.enum(['BUY_FOR', 'BUY_AGAINST', 'HOLD', 'BLOCKED'])
+export type AgentDecision = z.infer<typeof agentDecisionSchema>
+
+export const tradeSideSchema = z.enum(['FOR', 'AGAINST']).nullable()
+export type TradeSide = z.infer<typeof tradeSideSchema>
+
+export const agentRunStatusSchema = z.enum(['success', 'dry-run', 'blocked', 'error'])
+export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>
+
+export const registeredAgentSchema = z.object({
+	agentId: z.string().min(1),
+	name: z.string().min(1),
+	ownerAddress: addressSchema,
+	delegatedEoa: addressSchema,
+	marketId: marketIdSchema,
+	prompt: z.string().min(1),
+	promptHash: bytes32Schema,
+	promptUri: z.string().min(1),
+	budgetAtomic: decimalAtomicSchema,
+	spentAtomic: decimalAtomicSchema,
+	maxTradeAtomic: decimalAtomicSchema,
+	minEdgeBps: z.number().int().nonnegative(),
+	intervalSeconds: z.number().int().nonnegative(),
+	nextRunAt: z.string(),
+	status: registeredAgentStatusSchema,
+	revokedAt: z.string().nullable(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	lastDecision: agentDecisionSchema.nullable().default(null),
+	lastRunAt: z.string().nullable().default(null),
+})
+export type RegisteredAgent = z.infer<typeof registeredAgentSchema>
+
+export const agentTraceSchema = z.object({
+	prompt: z.string(),
+	rulesTriggered: z.array(z.string()),
+	budgetRemainingAtomic: decimalAtomicSchema,
+	edgeBps: z.number().int(),
+	confidence: z.number().min(0).max(1),
+	executionMode: z.enum(['dry-run', 'live']),
+})
+export type AgentTrace = z.infer<typeof agentTraceSchema>
+
+export const agentRunSchema = z.object({
+	runId: z.string().min(1),
+	agentId: z.string().min(1),
+	marketId: marketIdSchema,
+	contextSnapshot: marketContextSchema.nullable(),
+	llmTrace: agentTraceSchema.nullable(),
+	decision: agentDecisionSchema,
+	decisionReason: z.string(),
+	tradeSide: tradeSideSchema,
+	tradeAmountAtomic: decimalAtomicSchema,
+	txHash: txHashSchema.nullable(),
+	status: agentRunStatusSchema,
+	error: z.string().nullable(),
+	createdAt: z.string(),
+})
+export type AgentRun = z.infer<typeof agentRunSchema>
 
 export const footballOddsSnapshotSchema = z.object({
 	marketId: marketIdSchema,
@@ -123,6 +229,7 @@ export type PaidSignalAttestation = z.infer<typeof paidSignalAttestationSchema>
 export const footballOddsReportSchema = z.object({
 	market: eventMarketSchema,
 	snapshot: footballOddsSnapshotSchema,
+	brief: z.string().nullable().default(null),
 	aiSummary: z.string(),
 	agentDecision: z.enum(['BUY_YES', 'BUY_NO', 'HOLD', 'REDUCE']),
 	decisionReason: z.string(),
@@ -185,6 +292,10 @@ export const demoStateSchema = z.object({
 	markets: z.array(eventMarketSchema).default(DEMO_MARKETS.map((market) => ({ ...market }))),
 	lastSignalReport: footballOddsReportSchema.nullable(),
 	lastResultPayload: resultPosterPayloadSchema.nullable(),
+	registryMarkets: z.array(registryMarketSchema).default([]),
+	registeredAgents: z.array(registeredAgentSchema).default([]),
+	agentRuns: z.array(agentRunSchema).default([]),
+	lastAgentRun: agentRunSchema.nullable().default(null),
 })
 export type DemoState = z.infer<typeof demoStateSchema>
 
@@ -228,5 +339,43 @@ export const runEventIntelligenceRequestSchema = z.object({
 	marketId: marketIdSchema.default(DEFAULT_MARKET_ID),
 	kind: z.enum(['valid', 'blocked', 'revoked']).default('valid'),
 	round: z.enum(['opening', 'update']).default('opening'),
+	brief: z.string().trim().max(280).optional(),
 })
 export type RunEventIntelligenceRequest = z.infer<typeof runEventIntelligenceRequestSchema>
+
+export const createMarketRequestSchema = registryMarketSchema
+	.omit({
+		createdAt: true,
+		updatedAt: true,
+	})
+	.partial({
+		marketAddress: true,
+		ammAddress: true,
+		collateralTokenAddress: true,
+		contextSchema: true,
+		status: true,
+	})
+export type CreateMarketRequest = z.infer<typeof createMarketRequestSchema>
+
+export const createAgentRequestSchema = registeredAgentSchema
+	.omit({
+		promptHash: true,
+		spentAtomic: true,
+		revokedAt: true,
+		createdAt: true,
+		updatedAt: true,
+		lastDecision: true,
+		lastRunAt: true,
+	})
+	.partial({
+		promptUri: true,
+		status: true,
+		nextRunAt: true,
+	})
+export type CreateAgentRequest = z.infer<typeof createAgentRequestSchema>
+
+export const runRegisteredAgentRequestSchema = z.object({
+	agentId: z.string().min(1),
+	mode: z.enum(['dry-run', 'live']).default('dry-run'),
+})
+export type RunRegisteredAgentRequest = z.infer<typeof runRegisteredAgentRequestSchema>

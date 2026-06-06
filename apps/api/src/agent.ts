@@ -54,6 +54,94 @@ const cachedSnapshots: Record<string, Record<SignalRound, CachedSnapshot>> = {
 			confidence: 0.74,
 		},
 	},
+	ARG_BRA_WIN: {
+		opening: {
+			minute: 38,
+			score: '1-0',
+			matchState: 'Argentina ahead, controlling possession',
+			modelProbabilityYes: 0.64,
+			modelProbabilityNo: 0.36,
+			marketImpliedProbabilityYes: 0.55,
+			edgeBps: 900,
+			confidence: 0.8,
+		},
+		update: {
+			minute: 70,
+			score: '1-1',
+			matchState: 'Brazil equalise, momentum swinging back',
+			modelProbabilityYes: 0.58,
+			modelProbabilityNo: 0.42,
+			marketImpliedProbabilityYes: 0.56,
+			edgeBps: 200,
+			confidence: 0.71,
+		},
+	},
+	FRA_GER_WIN: {
+		opening: {
+			minute: 25,
+			score: '0-0',
+			matchState: 'Tight first half, chances at both ends',
+			modelProbabilityYes: 0.5,
+			modelProbabilityNo: 0.5,
+			marketImpliedProbabilityYes: 0.49,
+			edgeBps: 100,
+			confidence: 0.66,
+		},
+		update: {
+			minute: 78,
+			score: '0-1',
+			matchState: 'Germany lead late, France chasing the game',
+			modelProbabilityYes: 0.4,
+			modelProbabilityNo: 0.6,
+			marketImpliedProbabilityYes: 0.52,
+			edgeBps: -1200,
+			confidence: 0.77,
+		},
+	},
+	ESP_NED_WIN: {
+		opening: {
+			minute: 52,
+			score: '1-0',
+			matchState: 'Spain in front, dominating midfield',
+			modelProbabilityYes: 0.59,
+			modelProbabilityNo: 0.41,
+			marketImpliedProbabilityYes: 0.5,
+			edgeBps: 900,
+			confidence: 0.79,
+		},
+		update: {
+			minute: 81,
+			score: '1-1',
+			matchState: 'Netherlands respond, end-to-end finish',
+			modelProbabilityYes: 0.55,
+			modelProbabilityNo: 0.45,
+			marketImpliedProbabilityYes: 0.52,
+			edgeBps: 300,
+			confidence: 0.7,
+		},
+	},
+	MEX_CAN_WIN: {
+		opening: {
+			minute: 30,
+			score: '0-1',
+			matchState: 'Canada strike first, Mexico pressing to respond',
+			modelProbabilityYes: 0.45,
+			modelProbabilityNo: 0.55,
+			marketImpliedProbabilityYes: 0.55,
+			edgeBps: -1000,
+			confidence: 0.72,
+		},
+		update: {
+			minute: 74,
+			score: '0-2',
+			matchState: 'Canada extend the lead, comeback unlikely',
+			modelProbabilityYes: 0.43,
+			modelProbabilityNo: 0.57,
+			marketImpliedProbabilityYes: 0.55,
+			edgeBps: -1200,
+			confidence: 0.81,
+		},
+	},
 }
 
 type ApiFootballPayload = {
@@ -203,13 +291,14 @@ function decide(snapshot: FootballOddsSnapshot): Pick<FootballOddsReport, 'agent
 	}
 }
 
-function fallbackAiSummary(market: EventMarket, snapshot: FootballOddsSnapshot): string {
-	return `${market.question} Model YES is ${percent(snapshot.modelProbabilityYes)} versus ${percent(snapshot.marketImpliedProbabilityYes)} market implied, with ${percent(snapshot.confidence)} confidence. Match state: ${snapshot.matchState}.`
+function fallbackAiSummary(market: EventMarket, snapshot: FootballOddsSnapshot, brief?: string | null): string {
+	const base = `${market.question} Model YES is ${percent(snapshot.modelProbabilityYes)} versus ${percent(snapshot.marketImpliedProbabilityYes)} market implied, with ${percent(snapshot.confidence)} confidence. Match state: ${snapshot.matchState}.`
+	return brief?.trim() ? `Brief: "${brief.trim()}" → ${base}` : base
 }
 
-async function summarizeWithNvidia(market: EventMarket, snapshot: FootballOddsSnapshot): Promise<string> {
+async function summarizeWithNvidia(market: EventMarket, snapshot: FootballOddsSnapshot, brief?: string | null): Promise<string> {
 	if (!config.NVIDIA_API_KEY) {
-		return fallbackAiSummary(market, snapshot)
+		return fallbackAiSummary(market, snapshot, brief)
 	}
 
 	try {
@@ -225,11 +314,12 @@ async function summarizeWithNvidia(market: EventMarket, snapshot: FootballOddsSn
 				messages: [
 					{
 						role: 'system',
-						content: 'You summarize paid football event intelligence for autonomous trading agents. Keep it one concise sentence and do not invent facts.',
+						content: 'You summarize paid football event intelligence for autonomous trading agents. Answer the user brief if provided. Keep it one concise sentence and do not invent facts.',
 					},
 					{
 						role: 'user',
 						content: JSON.stringify({
+							brief: brief?.trim() || undefined,
 							question: market.question,
 							minute: snapshot.minute,
 							score: snapshot.score,
@@ -253,9 +343,9 @@ async function summarizeWithNvidia(market: EventMarket, snapshot: FootballOddsSn
 		}
 		const parsed = (await response.json()) as NvidiaChatResponse
 		const content = parsed.choices?.[0]?.message?.content?.trim()
-		return content || fallbackAiSummary(market, snapshot)
+		return content || fallbackAiSummary(market, snapshot, brief)
 	} catch {
-		return fallbackAiSummary(market, snapshot)
+		return fallbackAiSummary(market, snapshot, brief)
 	}
 }
 
@@ -284,14 +374,15 @@ async function signAttestation(snapshot: FootballOddsSnapshot): Promise<PaidSign
 	}
 }
 
-async function buildPaidSignalReport(marketId: string, round: SignalRound): Promise<FootballOddsReport> {
+async function buildPaidSignalReport(marketId: string, round: SignalRound, brief?: string | null): Promise<FootballOddsReport> {
 	const market = getMarketOrThrow(marketId)
 	const snapshot = await getOddsSnapshot(marketId, round)
-	const [aiSummary, attestation] = await Promise.all([summarizeWithNvidia(market, snapshot), signAttestation(snapshot)])
+	const [aiSummary, attestation] = await Promise.all([summarizeWithNvidia(market, snapshot, brief), signAttestation(snapshot)])
 	const decision = decide(snapshot)
 	return {
 		market,
 		snapshot,
+		brief: brief?.trim() || null,
 		aiSummary,
 		...decision,
 		attestation,
@@ -332,7 +423,7 @@ function approveMockPayment(challenge: X402Challenge, txHash = simulatedTxHash()
 	return { decision, txHash }
 }
 
-export async function unlockPaidSignal(marketId: string, input: UnlockSignalRequest, round: SignalRound = 'opening') {
+export async function unlockPaidSignal(marketId: string, input: UnlockSignalRequest, round: SignalRound = 'opening', brief?: string | null) {
 	const state = getState()
 	const challenge = state.lastChallenge
 	if (!challenge || challenge.paymentId !== input.paymentId) {
@@ -354,7 +445,7 @@ export async function unlockPaidSignal(marketId: string, input: UnlockSignalRequ
 	addEvent({ actor: 'PaymentAgent', title: 'Mock USDC payment approved', detail: 'GridPlus mandate allowed the x402-style payment before signal unlock.', status: 'success', txHash: txHash ?? undefined })
 
 	setAgentStatus('SignalAgent', 'running')
-	const report = await buildPaidSignalReport(marketId, round)
+	const report = await buildPaidSignalReport(marketId, round, brief)
 	patchState({ lastSignalReport: report, lastServiceResult: report.aiSummary })
 	setAgentStatus('SignalAgent', 'complete')
 	addEvent({ actor: 'SignalAgent', title: 'Signed signal unlocked', detail: `${report.market.title}: ${percent(report.snapshot.modelProbabilityYes)} YES probability, ${edgePercent(report.snapshot.edgeBps)} edge.`, status: 'success' })
@@ -367,9 +458,9 @@ export async function unlockPaidSignal(marketId: string, input: UnlockSignalRequ
 }
 
 export function getResultPayload(marketId: string = DEFAULT_MARKET_ID): ResultPosterPayload {
-	getMarketOrThrow(marketId)
-	const matchEndedAt = '2026-06-06T21:52:00Z'
-	const finalScore = 'England 1-2 USA'
+	const market = getMarketOrThrow(marketId)
+	const matchEndedAt = '2026-06-13T21:52:00Z'
+	const finalScore = `${market.homeTeam} 1-2 ${market.awayTeam}`
 	const evidenceHash = `0x${createHash('sha256').update(`${marketId}:NO:${finalScore}:${matchEndedAt}`).digest('hex')}` as Hex
 	return {
 		marketId,
@@ -399,14 +490,16 @@ export async function runEventIntelligenceDemo(input: RunEventIntelligenceReques
 		addEvent({ actor: 'Owner', title: 'Mandate revoked', detail: 'The GridPlus-signed agent mandate is now revoked.', status: 'warning' })
 	}
 
+	const market = getMarketOrThrow(input.marketId)
+	const briefText = input.brief?.trim()
 	setAgentStatus('ScoutAgent', 'running')
-	addEvent({ actor: 'ScoutAgent', title: 'Paid signal requested', detail: 'ScoutAgent asks: What is the probability England wins?', status: 'info' })
+	addEvent({ actor: 'ScoutAgent', title: 'Paid signal requested', detail: briefText ? `ScoutAgent brief: "${briefText}"` : `ScoutAgent asks: ${market.question}`, status: 'info' })
 
 	const challenge = buildSignalChallenge(input.marketId, input.kind === 'blocked' ? DEMO_SERVICE.blockedPaymentAtomic : DEMO_SERVICE.validPaymentAtomic)
 	patchState({ lastChallenge: challenge })
 	addEvent({ actor: 'Merchant', title: '402 Payment Required', detail: `${challenge.amountAtomic} atomic USDC requested for signed football intelligence.`, status: 'info' })
 
-	const unlocked = await unlockPaidSignal(input.marketId, { paymentId: challenge.paymentId }, input.round)
+	const unlocked = await unlockPaidSignal(input.marketId, { paymentId: challenge.paymentId }, input.round, input.brief)
 	if (!unlocked.report) {
 		setAgentStatus('ScoutAgent', 'blocked')
 		return getState()

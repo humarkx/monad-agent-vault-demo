@@ -6,6 +6,7 @@ type DemoConfig = {
 	PORT: number
 	API_CORS_ORIGINS: string[]
 	MONAD_RPC_URL: string
+	SQLITE_DB_FILE: string
 	SPONSOR_PRIVATE_KEY?: string
 	AGENT_PRIVATE_KEY?: string
 	AGENT_VAULT_DELEGATE_ADDRESS?: string
@@ -56,7 +57,8 @@ loadLocalEnvFile()
 export const config: DemoConfig = {
 	PORT: Number(process.env.PORT ?? 10000),
 	API_CORS_ORIGINS: ['http://localhost:5173', 'https://monad-agent-vault-dapp.onrender.com'],
-	MONAD_RPC_URL: 'https://rpc.contract.dev/f656e8028c1916415a7d2ee076d09921',
+	MONAD_RPC_URL: 'https://testnet-rpc.monad.xyz',
+	SQLITE_DB_FILE: process.env.SQLITE_DB_FILE ?? (existsSync('/var/data') ? '/var/data/agent-vault.sqlite' : join(repoRoot, 'data/agent-vault.sqlite')),
 	SPONSOR_PRIVATE_KEY: undefined,
 	AGENT_PRIVATE_KEY: undefined,
 	AGENT_VAULT_DELEGATE_ADDRESS: undefined,

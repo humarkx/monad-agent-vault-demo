@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto'
 import type { Address } from 'viem'
 import {
 	authorize7702RequestSchema,
+	createAgentRequestSchema,
+	createMarketRequestSchema,
 	DEFAULT_MARKET_ID,
 	DEMO_AGENT_VAULT_DELEGATE,
 	DEMO_SERVICE,
@@ -10,13 +12,16 @@ import {
 	deviceSetupRequestSchema,
 	MONAD_MAINNET,
 	runEventIntelligenceRequestSchema,
+	runRegisteredAgentRequestSchema,
 	signMandateRequestSchema,
 	signTestMessageRequestSchema,
 	unlockSignalRequestSchema,
 } from '@gridplus-monad-agent-vault/shared'
-import { createX402FetchClientDescription, getMarkets, publishResultPreview, requestSignalChallenge, runAgentDemo, runEventIntelligenceDemo, unlockPaidSignal } from './agent'
+import { createX402FetchClientDescription, publishResultPreview, requestSignalChallenge, runAgentDemo, runEventIntelligenceDemo, unlockPaidSignal } from './agent'
 import { config } from './config'
 import { getDelegatedCode, getPublicClient, rpcConfigured, submitAuthorizationTransaction } from './monad'
+import { bindAgentsToOwner, createAgent, createMarket, getAgent, getMarket, getRegistrySnapshot, listAgents, listMarkets, listRuns, listRunsForAgent, revokeAgent } from './registry-db'
+import { getStoredMarketContext, runDueAgents, runRegisteredAgent } from './registry-runner'
 import { addEvent, getActiveMandate, getState, patchState } from './state'
 import { buildReadableTestSignPayload, createNonce, getStoredDeviceContext, pairDevice, resetDeviceSession, setupDevice, sign7702Authorization, signMandate, signTestMessage } from './signer'
 
@@ -48,6 +53,11 @@ const stateWithStoredDeviceContext = () => {
 	return state
 }
 
+const hydratedState = () => ({
+	...stateWithStoredDeviceContext(),
+	...getRegistrySnapshot(),
+})
+
 routes.get('/health', (c) =>
 	c.json({
 		ok: true,
@@ -59,18 +69,71 @@ routes.get('/health', (c) =>
 			simulatorMqttWsUrl: config.GRIDPLUS_SIMULATOR_MQTT_WS_URL,
 			simulatorProvisionUrl: config.GRIDPLUS_SIMULATOR_PROVISION_URL,
 		},
-		x402: createX402FetchClientDescription(),
-		eventIntelligence: {
-			markets: getMarkets(),
+		registry: {
+			dbFile: config.SQLITE_DB_FILE,
+			markets: listMarkets(),
+			agents: listAgents(),
 			nvidiaConfigured: Boolean(config.NVIDIA_API_KEY),
 			apiFootballConfigured: Boolean(config.API_FOOTBALL_KEY),
+		},
+		compatibility: {
+			legacyX402Client: createX402FetchClientDescription(),
 		},
 	}),
 )
 
-routes.get('/demo/state', (c) => c.json(stateWithStoredDeviceContext()))
+routes.get('/demo/state', (c) => c.json(hydratedState()))
 
-routes.get('/markets', (c) => c.json({ markets: getMarkets() }))
+routes.get('/markets', (c) => c.json({ markets: listMarkets() }))
+
+routes.post('/markets', async (c) => c.json({ market: createMarket(createMarketRequestSchema.parse(await jsonBody(c))), state: hydratedState() }))
+
+routes.get('/markets/:marketId', (c) => {
+	const market = getMarket(c.req.param('marketId'))
+	if (!market) {
+		throw new Error(`Unknown market ${c.req.param('marketId')}.`)
+	}
+	return c.json({ market })
+})
+
+routes.get('/markets/:marketId/context', (c) => c.json(getStoredMarketContext(c.req.param('marketId'))))
+
+routes.get('/context/markets/:marketId', (c) => c.json(getStoredMarketContext(c.req.param('marketId'))))
+
+routes.get('/agents', (c) => c.json({ agents: listAgents() }))
+
+routes.post('/agents', async (c) => c.json({ agent: createAgent(createAgentRequestSchema.parse(await jsonBody(c))), state: hydratedState() }))
+
+routes.get('/agents/:agentId', (c) => {
+	const agent = getAgent(c.req.param('agentId'))
+	if (!agent) {
+		throw new Error(`Unknown agent ${c.req.param('agentId')}.`)
+	}
+	return c.json({ agent, runs: listRunsForAgent(agent.agentId) })
+})
+
+routes.post('/agents/:agentId/run', async (c) => {
+	const body = await jsonBody(c)
+	const bodyRecord = typeof body === 'object' && body !== null && !Array.isArray(body) ? body : {}
+	const input = runRegisteredAgentRequestSchema.parse({ ...bodyRecord, agentId: c.req.param('agentId') })
+	const run = await runRegisteredAgent(input)
+	return c.json({ run, state: hydratedState() })
+})
+
+routes.post('/agents/:agentId/revoke', (c) => {
+	const agent = revokeAgent(c.req.param('agentId'))
+	addEvent({ actor: 'Owner', title: `${agent.name} revoked`, detail: 'Future backend runner ticks will block this agent before spend.', status: 'warning' })
+	return c.json({ agent, state: hydratedState() })
+})
+
+routes.post('/runner/tick', async (c) => {
+	const body = await jsonBody(c)
+	const mode = typeof (body as { mode?: unknown }).mode === 'string' && (body as { mode: string }).mode === 'live' ? 'live' : 'dry-run'
+	const runs = await runDueAgents(mode)
+	return c.json({ runs, state: hydratedState() })
+})
+
+routes.get('/runs', (c) => c.json({ runs: listRuns() }))
 
 routes.get('/signal/:marketId', (c) => {
 	const challenge = requestSignalChallenge(c.req.param('marketId'))
@@ -96,13 +159,16 @@ routes.post('/device/setup', async (c) => {
 			appName: result.appName,
 		},
 	})
+	if (result.owner) {
+		bindAgentsToOwner(result.owner)
+	}
 	addEvent({
 		actor: 'GridPlus',
 		title: result.paired ? 'Device connected' : 'Device session opened',
 		detail: result.mode === 'device' ? (result.owner ? `GridPlus device ready for ${result.owner}.` : 'GridPlus device reached; enter the pairing code to authorize this app.') : `Local signer ready for ${result.owner}.`,
 		status: result.paired ? 'success' : 'warning',
 	})
-	return c.json({ paired: result.paired, owner: result.owner, state: getState() })
+	return c.json({ paired: result.paired, owner: result.owner, state: hydratedState() })
 })
 
 routes.post('/device/pair', async (c) => {
@@ -113,9 +179,12 @@ routes.post('/device/pair', async (c) => {
 		deviceId: state.device.deviceId,
 		appName: state.device.appName,
 	})
+	if (result.owner) {
+		bindAgentsToOwner(result.owner)
+	}
 	patchState({ device: { ...getState().device, paired: result.paired, owner: result.owner, deviceId: result.deviceId, appName: result.appName } })
 	addEvent({ actor: 'GridPlus', title: 'Pairing completed', detail: result.paired ? `Device pairing succeeded for ${result.owner}.` : 'Device pairing did not complete.', status: result.paired ? 'success' : 'warning' })
-	return c.json({ paired: result.paired, owner: result.owner, state: getState() })
+	return c.json({ paired: result.paired, owner: result.owner, state: hydratedState() })
 })
 
 routes.post('/device/reset-session', (c) => {
@@ -130,7 +199,7 @@ routes.post('/device/reset-session', (c) => {
 		},
 	})
 	addEvent({ actor: 'GridPlus', title: 'Device session reset', detail: 'Stored SDK session was cleared. Connect the device again before pairing.', status: 'warning' })
-	return c.json({ state: getState() })
+	return c.json({ state: hydratedState() })
 })
 
 routes.post('/device/sign-test', async (c) => {
@@ -151,7 +220,7 @@ routes.post('/device/sign-test', async (c) => {
 	}
 	patchState({ lastTestSignature: signed })
 	addEvent({ actor: 'GridPlus', title: 'Test message signed', detail: `Device signed "${input.message}".`, status: 'success' })
-	return c.json({ signed, state: getState() })
+	return c.json({ signed, state: hydratedState() })
 })
 
 routes.post('/vault/authorize-7702', async (c) => {
@@ -183,11 +252,11 @@ routes.post('/vault/authorize-7702', async (c) => {
 	addEvent({
 		actor: 'GridPlus',
 		title: 'EIP-7702 authorization signed',
-		detail: txHash ? 'Authorization submitted on Monad mainnet.' : 'Authorization signed; set SPONSOR_PRIVATE_KEY to submit it live.',
+		detail: txHash ? 'Authorization submitted on Monad testnet.' : 'Authorization signed; set SPONSOR_PRIVATE_KEY to submit it live.',
 		status: txHash ? 'success' : 'info',
 		txHash: txHash ?? undefined,
 	})
-	return c.json({ authorization, txHash, state: getState() })
+	return c.json({ authorization, txHash, state: hydratedState() })
 })
 
 routes.post('/vault/check-delegation', async (c) => {
@@ -198,7 +267,7 @@ routes.post('/vault/check-delegation', async (c) => {
 	const code = await getDelegatedCode(state.device.owner as Address)
 	const delegated = code !== '0x'
 	patchState({ vault: { ...state.vault, delegated } })
-	return c.json({ code, delegated, state: getState() })
+	return c.json({ code, delegated, state: hydratedState() })
 })
 
 routes.post('/vault/clear-delegation', async (c) => {
@@ -221,7 +290,7 @@ routes.post('/vault/clear-delegation', async (c) => {
 		},
 	})
 	addEvent({ actor: 'GridPlus', title: 'Delegation clear requested', detail: txHash ? 'Clear-delegation transaction submitted.' : 'Clear authorization signed but not submitted.', status: txHash ? 'success' : 'warning', txHash: txHash ?? undefined })
-	return c.json({ authorization, txHash, state: getState() })
+	return c.json({ authorization, txHash, state: hydratedState() })
 })
 
 routes.post('/mandates/sign', async (c) => {
@@ -249,15 +318,15 @@ routes.post('/mandates/sign', async (c) => {
 	const signature = await signMandate({ mode: state.device.mode, mandate })
 	const signed = { ...mandate, signature }
 	patchState({ vault: { ...state.vault, delegate }, mandate: signed })
-	addEvent({ actor: 'GridPlus', title: 'Agent mandate signed', detail: `Agent can spend up to ${input.maxTotalAtomic} atomic USDC, capped at ${input.maxPerPaymentAtomic} per request.`, status: 'success' })
-	return c.json({ mandate: signed, state: getState() })
+	addEvent({ actor: 'GridPlus', title: 'Agent mandate signed', detail: `Agent can spend up to ${input.maxTotalAtomic} atomic MockUSDC, capped at ${input.maxPerPaymentAtomic} per request.`, status: 'success' })
+	return c.json({ mandate: signed, state: hydratedState() })
 })
 
 routes.post('/mandates/revoke', (c) => {
 	const current = getActiveMandate()
 	patchState({ mandate: { ...current, revoked: true } })
 	addEvent({ actor: 'Owner', title: 'Mandate revoked', detail: 'Future agent payments are blocked.', status: 'warning' })
-	return c.json({ state: getState() })
+	return c.json({ state: hydratedState() })
 })
 
 routes.post('/agent/run-valid-demo', async (c) => c.json(await runAgentDemo('valid')))
