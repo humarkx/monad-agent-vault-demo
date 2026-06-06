@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Bot, CheckCircle2, CircleDollarSign, ExternalLink, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, Brain, CheckCircle2, CircleDollarSign, ExternalLink, FileJson, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { MONAD_MAINNET, type AgentName, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
+import { DEFAULT_MARKET_ID, MONAD_MAINNET, type AgentName, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
 import { API_BASE_URL, formatError, getState, postAction } from './api'
 import { BackgroundPattern } from './components/ui/background-pattern'
 import { Badge } from './components/ui/badge'
@@ -15,6 +15,8 @@ import { cn } from './lib/utils'
 
 const short = (value: string | null | undefined) => (value ? `${value.slice(0, 6)}...${value.slice(-4)}` : 'Not set')
 const compactUrl = (value: string) => value.replace(/^(https?|wss?):\/\//, '')
+const formatProbability = (value: number | null | undefined) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : 'Not set')
+const formatEdge = (value: number | null | undefined) => (typeof value === 'number' ? `${value > 0 ? '+' : ''}${(value / 100).toFixed(1)}%` : 'Not set')
 
 const formatAtomicUsdc = (value: string | null | undefined) => {
 	if (!value) return '0.000000 USDC'
@@ -24,7 +26,15 @@ const formatAtomicUsdc = (value: string | null | undefined) => {
 	return `${whole}.${fraction} USDC`
 }
 
-const agentOrder: AgentName[] = ['ResearchAgent', 'PaymentAgent', 'PolicyGuard', 'VerifierAgent']
+const agentOrder: AgentName[] = ['ScoutAgent', 'PaymentAgent', 'PolicyGuard', 'SignalAgent', 'DecisionAgent', 'ResultPoster']
+const agentLabels: Record<AgentName, string> = {
+	ScoutAgent: 'Scout Agent',
+	PaymentAgent: 'Payment Agent',
+	PolicyGuard: 'Policy Guard',
+	SignalAgent: 'Signal Agent',
+	DecisionAgent: 'Decision Agent',
+	ResultPoster: 'Result Poster',
+}
 const deviceModeLabel = (mode: DemoState['device']['mode']) => (mode === 'device' ? 'Device' : 'Local signer')
 
 const agentTone = (status: string): StatusPillTone => {
@@ -112,9 +122,18 @@ function AgentCard({ name, status }: { name: AgentName; status: string }) {
 		<div className={cn('flex items-center gap-3 rounded-lg border bg-muted/20 p-3', toneClasses.border)}>
 			<span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', toneClasses.chip)}>{icon}</span>
 			<div className="min-w-0">
-				<p className="truncate text-sm font-medium text-foreground">{name}</p>
+				<p className="truncate text-sm font-medium text-foreground">{agentLabels[name]}</p>
 				<p className="text-xs capitalize text-muted-foreground">{status}</p>
 			</div>
+		</div>
+	)
+}
+
+function JsonPreview({ label, value }: { label: string; value: unknown }) {
+	return (
+		<div className="rounded-lg border border-border/60 bg-background/40 p-3">
+			<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+			<pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{JSON.stringify(value, null, 2)}</pre>
 		</div>
 	)
 }
@@ -252,6 +271,8 @@ export function App() {
 
 	const selectedDeviceId = deviceId || state?.device.deviceId || ''
 	const selectedAppName = appName || state?.device.appName || 'Monad Agent Vault Demo'
+	const selectedMarket = state?.markets.find((market) => market.marketId === DEFAULT_MARKET_ID) ?? state?.markets[0]
+	const marketId = selectedMarket?.marketId ?? DEFAULT_MARKET_ID
 
 	if (!state) {
 		return (
@@ -259,7 +280,7 @@ export function App() {
 				<BackgroundPattern />
 				<div className="relative z-10 flex flex-col items-center gap-3 text-center">
 					<Spinner className="size-6 text-primary" />
-					<p className="text-sm text-muted-foreground">Loading Monad Agent Vault…</p>
+					<p className="text-sm text-muted-foreground">Loading paid event intelligence…</p>
 					{error ? <p className="max-w-md text-sm text-destructive">{error}</p> : null}
 				</div>
 			</main>
@@ -274,9 +295,9 @@ export function App() {
 				<header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
 					<div>
 						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">GridPlus × Monad</p>
-						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">Agent Vault</h1>
+						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">Paid Event Intelligence</h1>
 						<p className="mt-3 max-w-2xl text-balance text-sm text-muted-foreground sm:text-base">
-							A mainnet-only EIP-7702 demo where GridPlus device-signed mandates control autonomous x402-style payments.
+							GridPlus device-signed mandates control autonomous x402-style access to signed football intelligence on Monad.
 						</p>
 					</div>
 					<div className="flex flex-wrap gap-2 md:justify-end">
@@ -297,7 +318,7 @@ export function App() {
 						<CardHeader>
 							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Controls</p>
 							<CardTitle className="text-lg">Run the live story</CardTitle>
-							<CardDescription>Pair a device, enable the vault, sign a mandate, then run the agents.</CardDescription>
+							<CardDescription>Pair a device, sign a mandate, then let agents buy signed football intelligence.</CardDescription>
 							<CardAction>
 								<Badge variant={state.device.paired ? 'secondary' : 'outline'}>{deviceModeLabel(state.device.mode)}</Badge>
 							</CardAction>
@@ -363,20 +384,23 @@ export function App() {
 							</div>
 
 							<div className="flex flex-wrap gap-2">
-								<Input className="min-w-[220px] flex-1" aria-label="Delegate contract" placeholder="AgentVaultDelegate address" value={delegate} onChange={(event) => setDelegate(event.target.value)} />
+								<Input className="min-w-[220px] flex-1" aria-label="Delegate contract" placeholder="Optional AgentVaultDelegate address" value={delegate} onChange={(event) => setDelegate(event.target.value)} />
 								<ActionButton icon={KeyRound} onClick={() => run('authorize', () => postAction('/vault/authorize-7702', delegate ? { delegate } : {}))} disabled={Boolean(busy) || !state.device.owner}>
-									Enable vault
+									Enable delegation
 								</ActionButton>
 							</div>
 
 							<div className="grid gap-2 sm:grid-cols-2">
-								<ActionButton icon={ShieldCheck} variant="outline" onClick={() => run('mandate', () => postAction('/mandates/sign', { maxTotalAtomic: '50000', maxPerPaymentAtomic: '10000', expiresInSeconds: 3600 }))} disabled={Boolean(busy) || !state.vault.delegate}>
+								<ActionButton icon={ShieldCheck} variant="outline" onClick={() => run('mandate', () => postAction('/mandates/sign', { maxTotalAtomic: '50000', maxPerPaymentAtomic: '10000', expiresInSeconds: 3600 }))} disabled={Boolean(busy) || !state.device.owner}>
 									Sign mandate
 								</ActionButton>
-								<ActionButton icon={Play} onClick={() => run('valid', () => postAction('/agent/run-valid-demo'))} disabled={Boolean(busy) || !state.mandate}>
-									Run valid agent
+								<ActionButton icon={Play} onClick={() => run('opening', () => postAction('/agent/run-event-demo', { marketId, kind: 'valid', round: 'opening' }))} disabled={Boolean(busy) || !state.mandate}>
+									Run paid signal
 								</ActionButton>
-								<ActionButton icon={ShieldOff} variant="outline" onClick={() => run('blocked', () => postAction('/agent/run-blocked-demo'))} disabled={Boolean(busy) || !state.mandate}>
+								<ActionButton icon={Brain} variant="outline" onClick={() => run('update', () => postAction('/agent/run-event-demo', { marketId, kind: 'valid', round: 'update' }))} disabled={Boolean(busy) || !state.mandate}>
+									Run red-card update
+								</ActionButton>
+								<ActionButton icon={ShieldOff} variant="outline" onClick={() => run('blocked', () => postAction('/agent/run-event-demo', { marketId, kind: 'blocked', round: 'opening' }))} disabled={Boolean(busy) || !state.mandate}>
 									Run blocked agent
 								</ActionButton>
 								<ActionButton icon={Trash2} variant="destructive" onClick={() => run('revoke', () => postAction('/mandates/revoke'))} disabled={Boolean(busy) || !state.mandate}>
@@ -455,6 +479,56 @@ export function App() {
 								<p className="mt-1 text-xs text-muted-foreground">{state.lastTxHash ? 'Monad explorer link is in the timeline.' : 'No payment transaction yet.'}</p>
 							</div>
 						</div>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Paid intelligence</p>
+						<CardTitle className="text-lg">{state.lastSignalReport?.market.title ?? selectedMarket?.title ?? 'England to beat USA'}</CardTitle>
+						<CardDescription>{state.lastSignalReport?.market.question ?? selectedMarket?.question ?? 'Run the paid signal to unlock signed agent-readable data.'}</CardDescription>
+						<CardAction>
+							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+								<FileJson className="size-5" />
+							</span>
+						</CardAction>
+					</CardHeader>
+					<CardContent className="space-y-4">
+						{state.lastSignalReport ? (
+							<>
+								<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+									<Metric label="Model YES" value={formatProbability(state.lastSignalReport.snapshot.modelProbabilityYes)} detail={state.lastSignalReport.snapshot.matchState} mono={false} />
+									<Metric label="Market implied" value={formatProbability(state.lastSignalReport.snapshot.marketImpliedProbabilityYes)} detail={`${state.lastSignalReport.snapshot.minute}' · ${state.lastSignalReport.snapshot.score}`} mono={false} />
+									<Metric label="Edge" value={formatEdge(state.lastSignalReport.snapshot.edgeBps)} detail={state.lastSignalReport.decisionReason} mono={false} />
+									<Metric label="Confidence" value={formatProbability(state.lastSignalReport.snapshot.confidence)} detail={state.lastSignalReport.snapshot.source} mono={false} />
+								</div>
+								<div className="grid gap-2 lg:grid-cols-[0.9fr_1.1fr]">
+									<div className="space-y-2">
+										<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+											<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">AI summary</p>
+											<p className="mt-2 text-sm leading-relaxed text-foreground">{state.lastSignalReport.aiSummary}</p>
+										</div>
+										<div className="grid gap-2 sm:grid-cols-2">
+											<Metric label="Decision" value={state.lastSignalReport.agentDecision} detail={state.lastSignalReport.decisionReason} mono={false} />
+											<Metric label="Provider" value={short(state.lastSignalReport.attestation.provider)} detail="Signed data provider" />
+										</div>
+										{state.lastResultPayload ? (
+											<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+												<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Result poster preview</p>
+												<p className="mt-1 text-sm font-medium text-foreground">{state.lastResultPayload.finalScore}</p>
+												<p className="mt-1 text-xs text-muted-foreground">
+													Outcome {state.lastResultPayload.outcome}; contract integration {state.lastResultPayload.contractIntegration}.
+												</p>
+												<p className="mt-2 break-all font-mono text-xs text-muted-foreground">{state.lastResultPayload.evidenceHash}</p>
+											</div>
+										) : null}
+									</div>
+									<JsonPreview label="Signed attestation" value={state.lastSignalReport.attestation} />
+								</div>
+							</>
+						) : (
+							<div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No paid signal unlocked yet. Run the paid signal flow to show the signed attestation.</div>
+						)}
 					</CardContent>
 				</Card>
 

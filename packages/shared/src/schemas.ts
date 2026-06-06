@@ -1,12 +1,12 @@
 import { z } from 'zod'
-import { DEMO_SERVICE, MONAD_MAINNET } from './constants'
+import { DEFAULT_MARKET_ID, DEMO_MARKETS, DEMO_SERVICE, MONAD_MAINNET } from './constants'
 
 export const addressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Expected an EVM address')
 export const bytes32Schema = z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Expected bytes32 hex')
 export const txHashSchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/, 'Expected transaction hash')
 export const decimalAtomicSchema = z.string().regex(/^\d+$/, 'Expected unsigned integer string')
 
-export const agentNameSchema = z.enum(['ResearchAgent', 'PaymentAgent', 'VerifierAgent', 'PolicyGuard'])
+export const agentNameSchema = z.enum(['ScoutAgent', 'PaymentAgent', 'PolicyGuard', 'SignalAgent', 'DecisionAgent', 'ResultPoster'])
 export type AgentName = z.infer<typeof agentNameSchema>
 
 export const agentStatusSchema = z.enum(['idle', 'running', 'approved', 'blocked', 'complete', 'error'])
@@ -71,6 +71,75 @@ export const x402ChallengeSchema = z.object({
 })
 export type X402Challenge = z.infer<typeof x402ChallengeSchema>
 
+export const marketIdSchema = z.string().min(1)
+
+export const eventMarketSchema = z.object({
+	marketId: marketIdSchema,
+	title: z.string(),
+	question: z.string(),
+	league: z.string(),
+	homeTeam: z.string(),
+	awayTeam: z.string(),
+	kickoff: z.string(),
+})
+export type EventMarket = z.infer<typeof eventMarketSchema>
+
+export const footballOddsSnapshotSchema = z.object({
+	marketId: marketIdSchema,
+	round: z.enum(['opening', 'update']),
+	minute: z.number().int().nonnegative(),
+	score: z.string(),
+	matchState: z.string(),
+	modelProbabilityYes: z.number().min(0).max(1),
+	modelProbabilityNo: z.number().min(0).max(1),
+	marketImpliedProbabilityYes: z.number().min(0).max(1),
+	edgeBps: z.number().int(),
+	confidence: z.number().min(0).max(1),
+	source: z.string(),
+	timestamp: z.number().int().positive(),
+})
+export type FootballOddsSnapshot = z.infer<typeof footballOddsSnapshotSchema>
+
+export const paidSignalAttestationSchema = z.object({
+	marketId: marketIdSchema,
+	type: z.literal('LIVE_SIGNAL'),
+	minute: z.number().int().nonnegative(),
+	score: z.string(),
+	matchState: z.string(),
+	probabilities: z.object({
+		YES: z.number().min(0).max(1),
+		NO: z.number().min(0).max(1),
+	}),
+	marketImpliedProbability: z.number().min(0).max(1),
+	edgeBps: z.number().int(),
+	confidence: z.number().min(0).max(1),
+	timestamp: z.number().int().positive(),
+	source: z.string(),
+	provider: addressSchema,
+	signature: z.string().regex(/^0x[a-fA-F0-9]+$/),
+})
+export type PaidSignalAttestation = z.infer<typeof paidSignalAttestationSchema>
+
+export const footballOddsReportSchema = z.object({
+	market: eventMarketSchema,
+	snapshot: footballOddsSnapshotSchema,
+	aiSummary: z.string(),
+	agentDecision: z.enum(['BUY_YES', 'BUY_NO', 'HOLD', 'REDUCE']),
+	decisionReason: z.string(),
+	attestation: paidSignalAttestationSchema,
+})
+export type FootballOddsReport = z.infer<typeof footballOddsReportSchema>
+
+export const resultPosterPayloadSchema = z.object({
+	marketId: marketIdSchema,
+	outcome: z.enum(['YES', 'NO']),
+	finalScore: z.string(),
+	matchEndedAt: z.string(),
+	evidenceHash: bytes32Schema,
+	contractIntegration: z.literal('pending'),
+})
+export type ResultPosterPayload = z.infer<typeof resultPosterPayloadSchema>
+
 export const auditEventSchema = z.object({
 	id: z.string(),
 	at: z.string(),
@@ -112,6 +181,10 @@ export const demoStateSchema = z.object({
 	lastServiceResult: z.string().nullable(),
 	lastTxHash: txHashSchema.nullable(),
 	lastTestSignature: testSignatureSchema.nullable(),
+	usedPaymentIds: z.array(bytes32Schema).default([]),
+	markets: z.array(eventMarketSchema).default(DEMO_MARKETS.map((market) => ({ ...market }))),
+	lastSignalReport: footballOddsReportSchema.nullable(),
+	lastResultPayload: resultPosterPayloadSchema.nullable(),
 })
 export type DemoState = z.infer<typeof demoStateSchema>
 
@@ -144,3 +217,16 @@ export const signTestMessageRequestSchema = z.object({
 	message: z.string().min(1).max(256).default('Hello World'),
 })
 export type SignTestMessageRequest = z.infer<typeof signTestMessageRequestSchema>
+
+export const unlockSignalRequestSchema = z.object({
+	paymentId: bytes32Schema,
+	txHash: txHashSchema.optional(),
+})
+export type UnlockSignalRequest = z.infer<typeof unlockSignalRequestSchema>
+
+export const runEventIntelligenceRequestSchema = z.object({
+	marketId: marketIdSchema.default(DEFAULT_MARKET_ID),
+	kind: z.enum(['valid', 'blocked', 'revoked']).default('valid'),
+	round: z.enum(['opening', 'update']).default('opening'),
+})
+export type RunEventIntelligenceRequest = z.infer<typeof runEventIntelligenceRequestSchema>

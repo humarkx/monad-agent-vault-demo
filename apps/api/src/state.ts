@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { DEMO_SERVICE, demoStateSchema, MONAD_MAINNET, type AgentName, type AgentStatus, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
+import { DEMO_MARKETS, DEMO_SERVICE, demoStateSchema, MONAD_MAINNET, type AgentName, type AgentStatus, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
 import { config } from './config'
 import { rpcConfigured } from './monad'
 
 const initialAgents: Record<AgentName, AgentStatus> = {
-	ResearchAgent: 'idle',
+	ScoutAgent: 'idle',
 	PaymentAgent: 'idle',
-	VerifierAgent: 'idle',
 	PolicyGuard: 'idle',
+	SignalAgent: 'idle',
+	DecisionAgent: 'idle',
+	ResultPoster: 'idle',
 }
 
 const defaultState: DemoState = demoStateSchema.parse({
@@ -40,6 +42,10 @@ const defaultState: DemoState = demoStateSchema.parse({
 	lastServiceResult: null,
 	lastTxHash: null,
 	lastTestSignature: null,
+	usedPaymentIds: [],
+	markets: DEMO_MARKETS.map((market) => ({ ...market })),
+	lastSignalReport: null,
+	lastResultPayload: null,
 })
 
 let state = defaultState

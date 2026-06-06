@@ -3,14 +3,18 @@ import { randomBytes } from 'node:crypto'
 import type { Address } from 'viem'
 import {
 	authorize7702RequestSchema,
+	DEFAULT_MARKET_ID,
+	DEMO_AGENT_VAULT_DELEGATE,
 	DEMO_SERVICE,
 	devicePairRequestSchema,
 	deviceSetupRequestSchema,
 	MONAD_MAINNET,
+	runEventIntelligenceRequestSchema,
 	signMandateRequestSchema,
 	signTestMessageRequestSchema,
+	unlockSignalRequestSchema,
 } from '@gridplus-monad-agent-vault/shared'
-import { buildResearchChallenge, createX402FetchClientDescription, runAgentDemo } from './agent'
+import { createX402FetchClientDescription, getMarkets, publishResultPreview, requestSignalChallenge, runAgentDemo, runEventIntelligenceDemo, unlockPaidSignal } from './agent'
 import { config } from './config'
 import { getDelegatedCode, getPublicClient, rpcConfigured, submitAuthorizationTransaction } from './monad'
 import { addEvent, getActiveMandate, getState, patchState } from './state'
@@ -56,10 +60,29 @@ routes.get('/health', (c) =>
 			simulatorProvisionUrl: config.GRIDPLUS_SIMULATOR_PROVISION_URL,
 		},
 		x402: createX402FetchClientDescription(),
+		eventIntelligence: {
+			markets: getMarkets(),
+			nvidiaConfigured: Boolean(config.NVIDIA_API_KEY),
+			apiFootballConfigured: Boolean(config.API_FOOTBALL_KEY),
+		},
 	}),
 )
 
 routes.get('/demo/state', (c) => c.json(stateWithStoredDeviceContext()))
+
+routes.get('/markets', (c) => c.json({ markets: getMarkets() }))
+
+routes.get('/signal/:marketId', (c) => {
+	const challenge = requestSignalChallenge(c.req.param('marketId'))
+	return c.json(challenge, 402)
+})
+
+routes.post('/signal/:marketId/unlock', async (c) => {
+	const input = unlockSignalRequestSchema.parse(await jsonBody(c))
+	return c.json(await unlockPaidSignal(c.req.param('marketId'), input))
+})
+
+routes.get('/result/:marketId', async (c) => c.json(await publishResultPreview(c.req.param('marketId'))))
 
 routes.post('/device/setup', async (c) => {
 	const input = deviceSetupRequestSchema.parse(await jsonBody(c))
@@ -204,14 +227,15 @@ routes.post('/vault/clear-delegation', async (c) => {
 routes.post('/mandates/sign', async (c) => {
 	const input = signMandateRequestSchema.parse(await jsonBody(c))
 	const state = getState()
-	if (!state.device.owner || !state.vault.delegate) {
-		throw new Error('Connect GridPlus and set a delegate before signing a mandate.')
+	if (!state.device.owner) {
+		throw new Error('Connect GridPlus before signing a mandate.')
 	}
+	const delegate = (state.vault.delegate ?? config.AGENT_VAULT_DELEGATE_ADDRESS ?? DEMO_AGENT_VAULT_DELEGATE) as Address
 	const agent = input.agent ?? (config.AGENT_PRIVATE_KEY ? undefined : '0x3333333333333333333333333333333333333333')
 	const mandate = {
 		owner: state.device.owner,
 		agent: agent ?? '0x3333333333333333333333333333333333333333',
-		delegate: state.vault.delegate,
+		delegate,
 		token: MONAD_MAINNET.usdc.address,
 		merchant: DEMO_SERVICE.merchant,
 		serviceHash: DEMO_SERVICE.serviceHash,
@@ -224,7 +248,7 @@ routes.post('/mandates/sign', async (c) => {
 	}
 	const signature = await signMandate({ mode: state.device.mode, mandate })
 	const signed = { ...mandate, signature }
-	patchState({ mandate: signed })
+	patchState({ vault: { ...state.vault, delegate }, mandate: signed })
 	addEvent({ actor: 'GridPlus', title: 'Agent mandate signed', detail: `Agent can spend up to ${input.maxTotalAtomic} atomic USDC, capped at ${input.maxPerPaymentAtomic} per request.`, status: 'success' })
 	return c.json({ mandate: signed, state: getState() })
 })
@@ -239,9 +263,10 @@ routes.post('/mandates/revoke', (c) => {
 routes.post('/agent/run-valid-demo', async (c) => c.json(await runAgentDemo('valid')))
 routes.post('/agent/run-blocked-demo', async (c) => c.json(await runAgentDemo('blocked')))
 routes.post('/agent/run-revoked-demo', async (c) => c.json(await runAgentDemo('revoked')))
+routes.post('/agent/run-event-demo', async (c) => c.json(await runEventIntelligenceDemo(runEventIntelligenceRequestSchema.parse(await jsonBody(c)))))
 
 routes.get('/service/research', (c) => {
-	const challenge = buildResearchChallenge(DEMO_SERVICE.validPaymentAtomic)
+	const challenge = requestSignalChallenge(DEFAULT_MARKET_ID)
 	return c.json(challenge, 402)
 })
 
