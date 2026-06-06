@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Bot, Brain, CheckCircle2, CircleDollarSign, ExternalLink, FileJson, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, Brain, CheckCircle2, CircleDollarSign, Database, ExternalLink, FileJson, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { DEFAULT_MARKET_ID, MONAD_MAINNET, type AgentName, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
+import { MONAD_NETWORK, type AgentRun, type AuditEvent, type DemoState, type RegisteredAgent, type RegistryMarket } from '@gridplus-monad-agent-vault/shared'
 import { API_BASE_URL, formatError, getState, postAction } from './api'
 import { BackgroundPattern } from './components/ui/background-pattern'
 import { Badge } from './components/ui/badge'
@@ -15,41 +15,30 @@ import { cn } from './lib/utils'
 
 const short = (value: string | null | undefined) => (value ? `${value.slice(0, 6)}...${value.slice(-4)}` : 'Not set')
 const compactUrl = (value: string) => value.replace(/^(https?|wss?):\/\//, '')
-const formatProbability = (value: number | null | undefined) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : 'Not set')
-const formatEdge = (value: number | null | undefined) => (typeof value === 'number' ? `${value > 0 ? '+' : ''}${(value / 100).toFixed(1)}%` : 'Not set')
+const percent = (value: number | null | undefined) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : 'Not set')
+const edge = (value: number | null | undefined) => (typeof value === 'number' ? `${value > 0 ? '+' : ''}${(value / 100).toFixed(1)}%` : 'Not set')
 
-const formatAtomicUsdc = (value: string | null | undefined) => {
-	if (!value) return '0.000000 USDC'
+const formatAtomicCollateral = (value: string | null | undefined) => {
+	if (!value) return '0.000000 MockUSDC'
 	const raw = BigInt(value)
 	const whole = raw / 1_000_000n
 	const fraction = (raw % 1_000_000n).toString().padStart(6, '0')
-	return `${whole}.${fraction} USDC`
+	return `${whole}.${fraction} MockUSDC`
 }
 
-const agentOrder: AgentName[] = ['ScoutAgent', 'PaymentAgent', 'PolicyGuard', 'SignalAgent', 'DecisionAgent', 'ResultPoster']
-const agentLabels: Record<AgentName, string> = {
-	ScoutAgent: 'Scout Agent',
-	PaymentAgent: 'Payment Agent',
-	PolicyGuard: 'Policy Guard',
-	SignalAgent: 'Signal Agent',
-	DecisionAgent: 'Decision Agent',
-	ResultPoster: 'Result Poster',
+const formatTime = (value: string | null | undefined) => {
+	if (!value) return 'Not set'
+	return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
+
 const deviceModeLabel = (mode: DemoState['device']['mode']) => (mode === 'device' ? 'Device' : 'Local signer')
 
-const agentTone = (status: string): StatusPillTone => {
-	if (status === 'complete' || status === 'approved') return 'success'
-	if (status === 'blocked' || status === 'error') return 'danger'
-	if (status === 'running') return 'info'
+const statusTone = (status: string): StatusPillTone => {
+	if (status === 'active' || status === 'success' || status === 'complete' || status === 'approved') return 'success'
+	if (status === 'dry-run' || status === 'running') return 'info'
+	if (status === 'paused' || status === 'warning') return 'warning'
+	if (status === 'revoked' || status === 'blocked' || status === 'error') return 'danger'
 	return 'neutral'
-}
-
-const AGENT_TONE_CLASSES: Record<StatusPillTone, { border: string; chip: string }> = {
-	neutral: { border: 'border-border/60', chip: 'bg-muted text-muted-foreground' },
-	info: { border: 'border-sky-500/40', chip: 'bg-sky-500/15 text-sky-300' },
-	success: { border: 'border-emerald-500/40', chip: 'bg-emerald-500/15 text-emerald-300' },
-	warning: { border: 'border-amber-500/40', chip: 'bg-amber-500/15 text-amber-300' },
-	danger: { border: 'border-rose-500/40', chip: 'bg-rose-500/15 text-rose-300' },
 }
 
 const TIMELINE_DOT: Record<string, string> = {
@@ -114,21 +103,6 @@ function DetailItem({ label, value, href }: { label: string; value: string; href
 	)
 }
 
-function AgentCard({ name, status }: { name: AgentName; status: string }) {
-	const tone = agentTone(status)
-	const toneClasses = AGENT_TONE_CLASSES[tone]
-	const icon = status === 'complete' || status === 'approved' ? <CheckCircle2 className="size-4" /> : status === 'blocked' || status === 'error' ? <XCircle className="size-4" /> : <Bot className="size-4" />
-	return (
-		<div className={cn('flex items-center gap-3 rounded-lg border bg-muted/20 p-3', toneClasses.border)}>
-			<span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', toneClasses.chip)}>{icon}</span>
-			<div className="min-w-0">
-				<p className="truncate text-sm font-medium text-foreground">{agentLabels[name]}</p>
-				<p className="text-xs capitalize text-muted-foreground">{status}</p>
-			</div>
-		</div>
-	)
-}
-
 function JsonPreview({ label, value }: { label: string; value: unknown }) {
 	return (
 		<div className="rounded-lg border border-border/60 bg-background/40 p-3">
@@ -140,7 +114,7 @@ function JsonPreview({ label, value }: { label: string; value: unknown }) {
 
 function Timeline({ events }: { events: AuditEvent[] }) {
 	if (events.length === 0) {
-		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No events yet. Connect a device to start the demo.</div>
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No events yet.</div>
 	}
 	return (
 		<div className="space-y-4">
@@ -154,7 +128,7 @@ function Timeline({ events }: { events: AuditEvent[] }) {
 						</div>
 						<p className="mt-1 text-sm text-muted-foreground">{event.detail}</p>
 						{event.txHash ? (
-							<a className="mt-1 inline-block font-mono text-xs font-medium text-primary hover:underline" href={MONAD_MAINNET.explorer.txUrl(event.txHash)} rel="noreferrer" target="_blank">
+							<a className="mt-1 inline-block font-mono text-xs font-medium text-primary hover:underline" href={MONAD_NETWORK.explorer.txUrl(event.txHash)} rel="noreferrer" target="_blank">
 								{short(event.txHash)}
 							</a>
 						) : null}
@@ -167,7 +141,7 @@ function Timeline({ events }: { events: AuditEvent[] }) {
 
 function PairedDeviceCard({ state, busy, onReset }: { state: DemoState; busy: boolean; onReset: () => void }) {
 	const owner = state.device.owner
-	const ownerUrl = owner ? MONAD_MAINNET.explorer.addressUrl(owner) : undefined
+	const ownerUrl = owner ? MONAD_NETWORK.explorer.addressUrl(owner) : undefined
 	return (
 		<div className="space-y-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
 			<div className="flex items-center gap-3">
@@ -198,6 +172,85 @@ function PairedDeviceCard({ state, busy, onReset }: { state: DemoState; busy: bo
 	)
 }
 
+function AgentRegistryTable({
+	agents,
+	markets,
+	selectedAgentId,
+	onSelect,
+}: {
+	agents: RegisteredAgent[]
+	markets: RegistryMarket[]
+	selectedAgentId: string | null
+	onSelect: (agentId: string) => void
+}) {
+	const marketTitle = (marketId: string) => markets.find((market) => market.marketId === marketId)?.title ?? marketId
+	if (agents.length === 0) {
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No agents registered.</div>
+	}
+	return (
+		<div className="overflow-hidden rounded-lg border border-border/60">
+			<div className="grid grid-cols-[1fr_1fr_1fr_0.8fr_0.8fr_0.7fr] gap-3 border-b border-border/60 bg-muted/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+				<span>Agent</span>
+				<span>User</span>
+				<span>Market</span>
+				<span>Budget</span>
+				<span>Spent</span>
+				<span>Status</span>
+			</div>
+			<div className="divide-y divide-border/60">
+				{agents.map((agent) => (
+					<button
+						type="button"
+						key={agent.agentId}
+						onClick={() => onSelect(agent.agentId)}
+						className={cn('grid w-full grid-cols-[1fr_1fr_1fr_0.8fr_0.8fr_0.7fr] gap-3 px-3 py-3 text-left text-sm transition hover:bg-muted/25', selectedAgentId === agent.agentId && 'bg-primary/10')}
+					>
+						<span className="min-w-0">
+							<span className="block truncate font-medium text-foreground">{agent.name}</span>
+							<span className="block truncate text-xs text-muted-foreground">{agent.lastDecision ?? 'No run'}</span>
+						</span>
+						<span className="truncate font-mono text-muted-foreground">{short(agent.ownerAddress)}</span>
+						<span className="truncate text-muted-foreground">{marketTitle(agent.marketId)}</span>
+						<span className="truncate font-mono text-muted-foreground">{formatAtomicCollateral(agent.budgetAtomic)}</span>
+						<span className="truncate font-mono text-muted-foreground">{formatAtomicCollateral(agent.spentAtomic)}</span>
+						<span>
+							<Badge variant={agent.status === 'active' ? 'secondary' : 'outline'}>{agent.status}</Badge>
+						</span>
+					</button>
+				))}
+			</div>
+		</div>
+	)
+}
+
+function DecisionPanel({ run }: { run: AgentRun | null }) {
+	if (!run) {
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No agent run recorded for the selected agent.</div>
+	}
+	return (
+		<div className="space-y-3">
+			<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+				<Metric label="Decision" value={run.decision} detail={run.decisionReason} mono={false} />
+				<Metric label="Run status" value={run.status} detail={formatTime(run.createdAt)} mono={false} />
+				<Metric label="Trade side" value={run.tradeSide ?? 'None'} detail={formatAtomicCollateral(run.tradeAmountAtomic)} mono={false} />
+				<Metric label="Transaction" value={short(run.txHash)} detail={run.txHash ? 'Live testnet tx' : 'No tx submitted'} />
+			</div>
+			{run.contextSnapshot ? (
+				<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+					<Metric label="Model FOR" value={percent(run.contextSnapshot.modelProbabilityFor)} detail={run.contextSnapshot.matchState} mono={false} />
+					<Metric label="AMM FOR" value={percent(run.contextSnapshot.ammPriceFor)} detail={`${run.contextSnapshot.minute}' · ${run.contextSnapshot.score}`} mono={false} />
+					<Metric label="Edge" value={edge(run.contextSnapshot.edgeBps)} detail={run.contextSnapshot.headline} mono={false} />
+					<Metric label="Confidence" value={percent(run.contextSnapshot.confidence)} detail={run.contextSnapshot.source} mono={false} />
+				</div>
+			) : null}
+			<div className="grid gap-2 lg:grid-cols-2">
+				<JsonPreview label="Context payload" value={run.contextSnapshot ?? { status: 'not fetched' }} />
+				<JsonPreview label="Agent trace" value={run.llmTrace ?? { status: run.error ?? 'not available' }} />
+			</div>
+		</div>
+	)
+}
+
 export function App() {
 	const [state, setState] = useState<DemoState | null>(null)
 	const [delegate, setDelegate] = useState('')
@@ -205,12 +258,15 @@ export function App() {
 	const [appName, setAppName] = useState('Monad Agent Vault Demo')
 	const [pairingCode, setPairingCode] = useState('')
 	const [testMessage, setTestMessage] = useState('Hello World')
+	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
 	const [busy, setBusy] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 
 	const loadState = async () => {
 		try {
-			setState(await getState())
+			const next = await getState()
+			setState(next)
+			setSelectedAgentId((current) => current ?? next.registeredAgents[0]?.agentId ?? null)
 			setError(null)
 		} catch (err) {
 			setError(formatError(err))
@@ -264,15 +320,13 @@ export function App() {
 		}
 	}
 
-	const remaining = useMemo(() => {
-		if (!state?.mandate) return null
-		return (BigInt(state.mandate.maxTotalAtomic) - BigInt(state.mandate.spentAtomic)).toString()
-	}, [state?.mandate])
-
+	const selectedAgent = useMemo(() => state?.registeredAgents.find((agent) => agent.agentId === selectedAgentId) ?? state?.registeredAgents[0] ?? null, [selectedAgentId, state?.registeredAgents])
+	const selectedMarket = useMemo(() => state?.registryMarkets.find((market) => market.marketId === selectedAgent?.marketId) ?? state?.registryMarkets[0] ?? null, [selectedAgent?.marketId, state?.registryMarkets])
+	const selectedRuns = useMemo(() => state?.agentRuns.filter((run) => run.agentId === selectedAgent?.agentId) ?? [], [selectedAgent?.agentId, state?.agentRuns])
+	const selectedRun = selectedRuns[0] ?? null
 	const selectedDeviceId = deviceId || state?.device.deviceId || ''
 	const selectedAppName = appName || state?.device.appName || 'Monad Agent Vault Demo'
-	const selectedMarket = state?.markets.find((market) => market.marketId === DEFAULT_MARKET_ID) ?? state?.markets[0]
-	const marketId = selectedMarket?.marketId ?? DEFAULT_MARKET_ID
+	const selectedRemaining = selectedAgent ? (BigInt(selectedAgent.budgetAtomic) - BigInt(selectedAgent.spentAtomic)).toString() : null
 
 	if (!state) {
 		return (
@@ -280,7 +334,7 @@ export function App() {
 				<BackgroundPattern />
 				<div className="relative z-10 flex flex-col items-center gap-3 text-center">
 					<Spinner className="size-6 text-primary" />
-					<p className="text-sm text-muted-foreground">Loading paid event intelligence…</p>
+					<p className="text-sm text-muted-foreground">Loading agent registry…</p>
 					{error ? <p className="max-w-md text-sm text-destructive">{error}</p> : null}
 				</div>
 			</main>
@@ -295,14 +349,15 @@ export function App() {
 				<header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
 					<div>
 						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">GridPlus × Monad</p>
-						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">Paid Event Intelligence</h1>
+						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">Agent Vault</h1>
 						<p className="mt-3 max-w-2xl text-balance text-sm text-muted-foreground sm:text-base">
-							GridPlus device-signed mandates control autonomous x402-style access to signed football intelligence on Monad.
+							SQLite-registered agents fetch market context APIs and execute bounded prediction-market decisions through a GridPlus-controlled EIP-7702 wallet.
 						</p>
 					</div>
 					<div className="flex flex-wrap gap-2 md:justify-end">
-						<StatusPill tone="info" label={MONAD_MAINNET.caip2} />
+						<StatusPill tone="info" label={MONAD_NETWORK.caip2} />
 						<StatusPill tone={state.rpcConfigured ? 'success' : 'warning'} label={state.rpcConfigured ? 'RPC ready' : 'RPC missing'} />
+						<StatusPill tone={state.registryMarkets.length > 0 ? 'success' : 'warning'} label={`${state.registryMarkets.length} market${state.registryMarkets.length === 1 ? '' : 's'}`} />
 					</div>
 				</header>
 
@@ -317,8 +372,8 @@ export function App() {
 					<Card>
 						<CardHeader>
 							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Controls</p>
-							<CardTitle className="text-lg">Run the live story</CardTitle>
-							<CardDescription>Pair a device, sign a mandate, then let agents buy signed football intelligence.</CardDescription>
+							<CardTitle className="text-lg">Run the agent story</CardTitle>
+							<CardDescription>Device pairing, EIP-7702 delegation, agent run, revoke, and cleanup.</CardDescription>
 							<CardAction>
 								<Badge variant={state.device.paired ? 'secondary' : 'outline'}>{deviceModeLabel(state.device.mode)}</Badge>
 							</CardAction>
@@ -355,7 +410,7 @@ export function App() {
 								<div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
 									<div>
 										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Test signature</p>
-										<p className="text-sm text-muted-foreground">Send a readable Hello World message through the paired GridPlus signing path.</p>
+										<p className="text-sm text-muted-foreground">Readable ASCII signing path.</p>
 									</div>
 									<Badge variant={state.lastTestSignature ? 'secondary' : 'outline'}>{state.lastTestSignature ? 'Signed' : 'Ready'}</Badge>
 								</div>
@@ -366,19 +421,9 @@ export function App() {
 									</ActionButton>
 								</div>
 								{state.lastTestSignature ? (
-									<div className="space-y-2">
-										<div className="grid gap-2 sm:grid-cols-2">
-											<Metric label="Message" value={state.lastTestSignature.message} mono={false} />
-											<Metric label="Nonce" value={state.lastTestSignature.nonce} />
-										</div>
-										<div className="rounded-lg border border-border/60 bg-background/40 p-3">
-											<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signed payload</p>
-											<pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{state.lastTestSignature.payload}</pre>
-										</div>
-										<div className="rounded-lg border border-border/60 bg-background/40 p-3">
-											<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signature</p>
-											<p className="mt-2 break-all font-mono text-xs leading-relaxed text-foreground">{state.lastTestSignature.signature}</p>
-										</div>
+									<div className="rounded-lg border border-border/60 bg-background/40 p-3">
+										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signed payload</p>
+										<pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">{state.lastTestSignature.payload}</pre>
 									</div>
 								) : null}
 							</div>
@@ -391,22 +436,22 @@ export function App() {
 							</div>
 
 							<div className="grid gap-2 sm:grid-cols-2">
-								<ActionButton icon={ShieldCheck} variant="outline" onClick={() => run('mandate', () => postAction('/mandates/sign', { maxTotalAtomic: '50000', maxPerPaymentAtomic: '10000', expiresInSeconds: 3600 }))} disabled={Boolean(busy) || !state.device.owner}>
+								<ActionButton icon={ShieldCheck} variant="outline" onClick={() => run('mandate', () => postAction('/mandates/sign', { maxTotalAtomic: '10000000', maxPerPaymentAtomic: '1000000', expiresInSeconds: 3600 }))} disabled={Boolean(busy) || !state.device.owner}>
 									Sign mandate
 								</ActionButton>
-								<ActionButton icon={Play} onClick={() => run('opening', () => postAction('/agent/run-event-demo', { marketId, kind: 'valid', round: 'opening' }))} disabled={Boolean(busy) || !state.mandate}>
-									Run paid signal
+								<ActionButton icon={Play} onClick={() => selectedAgent && run('agent-run', () => postAction(`/agents/${selectedAgent.agentId}/run`, { mode: 'dry-run' }))} disabled={Boolean(busy) || !selectedAgent}>
+									Run selected agent
 								</ActionButton>
-								<ActionButton icon={Brain} variant="outline" onClick={() => run('update', () => postAction('/agent/run-event-demo', { marketId, kind: 'valid', round: 'update' }))} disabled={Boolean(busy) || !state.mandate}>
-									Run red-card update
+								<ActionButton icon={Brain} variant="outline" onClick={() => run('runner-tick', () => postAction('/runner/tick', { mode: 'dry-run' }))} disabled={Boolean(busy)}>
+									Run due agents
 								</ActionButton>
-								<ActionButton icon={ShieldOff} variant="outline" onClick={() => run('blocked', () => postAction('/agent/run-event-demo', { marketId, kind: 'blocked', round: 'opening' }))} disabled={Boolean(busy) || !state.mandate}>
-									Run blocked agent
+								<ActionButton icon={ShieldOff} variant="outline" onClick={() => selectedAgent && run('revoke-agent', () => postAction(`/agents/${selectedAgent.agentId}/revoke`))} disabled={Boolean(busy) || !selectedAgent || selectedAgent.status === 'revoked'}>
+									Revoke selected
 								</ActionButton>
 								<ActionButton icon={Trash2} variant="destructive" onClick={() => run('revoke', () => postAction('/mandates/revoke'))} disabled={Boolean(busy) || !state.mandate}>
 									Revoke mandate
 								</ActionButton>
-								<ActionButton icon={RefreshCw} variant="outline" className="sm:col-span-2" onClick={() => run('clear', () => postAction('/vault/clear-delegation'))} disabled={Boolean(busy) || !state.device.owner}>
+								<ActionButton icon={RefreshCw} variant="outline" onClick={() => run('clear', () => postAction('/vault/clear-delegation'))} disabled={Boolean(busy) || !state.device.owner}>
 									Clear delegation
 								</ActionButton>
 							</div>
@@ -423,8 +468,8 @@ export function App() {
 					<Card>
 						<CardHeader>
 							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Vault</p>
-							<CardTitle className="text-lg">Mainnet status</CardTitle>
-							<CardDescription>Live on-chain and orchestration backend state.</CardDescription>
+							<CardTitle className="text-lg">Testnet status</CardTitle>
+							<CardDescription>Device, delegation, API, and selected-agent budget state.</CardDescription>
 							<CardAction>
 								<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
 									<WalletCards className="size-5" />
@@ -435,11 +480,12 @@ export function App() {
 							<div className="grid gap-2 sm:grid-cols-2">
 								<Metric label="Owner EOA" value={short(state.device.owner)} detail={state.device.paired ? `${state.device.deviceId ?? 'Device'} paired` : 'Connect required'} />
 								<Metric label="Delegate" value={short(state.vault.delegate)} detail={state.vault.delegated ? 'Active code detected/submitted' : 'Not active'} />
-								<Metric label="Budget left" value={formatAtomicUsdc(remaining)} detail={state.mandate?.revoked ? 'Revoked' : 'Mandate controlled'} />
+								<Metric label="Selected budget left" value={formatAtomicCollateral(selectedRemaining)} detail={selectedAgent?.status ?? 'No agent'} />
 								<Metric label="Demo API" value={compactUrl(API_BASE_URL)} detail="Standalone orchestration backend" />
-								<Metric label="Device relay" value={compactUrl(state.gridplus.connectRelayUrl)} detail="Production GridPlus API path" />
+								<Metric label="SQLite markets" value={String(state.registryMarkets.length)} detail="Local backend database" mono={false} />
+								<Metric label="Agent runs" value={String(state.agentRuns.length)} detail="Persisted runner traces" mono={false} />
+								<Metric label="Device relay" value={compactUrl(state.gridplus.connectRelayUrl)} detail="Production GridPlus signing relay" />
 								<Metric label="Simulator MQTT" value={compactUrl(state.gridplus.simulatorMqttWsUrl)} detail="Production Web MQTT broker" />
-								<Metric label="Provision API" value={compactUrl(state.gridplus.simulatorProvisionUrl)} detail="Hosted device credentials" />
 							</div>
 						</CardContent>
 					</Card>
@@ -447,88 +493,96 @@ export function App() {
 
 				<Card>
 					<CardHeader>
-						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Agents</p>
-						<CardTitle className="text-lg">Workflow board</CardTitle>
-						<CardDescription>Agent states and the latest x402-style policy decision.</CardDescription>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Registry</p>
+						<CardTitle className="text-lg">Agent Registry</CardTitle>
+						<CardDescription>SQLite-backed agents with owner, market, prompt, budget, spent amount, and status.</CardDescription>
+						<CardAction>
+							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+								<Database className="size-5" />
+							</span>
+						</CardAction>
+					</CardHeader>
+					<CardContent>
+						<AgentRegistryTable agents={state.registeredAgents} markets={state.registryMarkets} selectedAgentId={selectedAgent?.agentId ?? null} onSelect={setSelectedAgentId} />
+					</CardContent>
+				</Card>
+
+				<section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+					<Card>
+						<CardHeader>
+							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Agent</p>
+							<CardTitle className="text-lg">{selectedAgent?.name ?? 'No agent selected'}</CardTitle>
+							<CardDescription>{selectedMarket?.title ?? 'No market selected'}</CardDescription>
+							<CardAction>{selectedAgent ? <StatusPill tone={statusTone(selectedAgent.status)} label={selectedAgent.status} /> : null}</CardAction>
+						</CardHeader>
+						<CardContent className="space-y-3">
+							{selectedAgent ? (
+								<>
+									<div className="grid gap-2 sm:grid-cols-2">
+										<Metric label="Owner" value={short(selectedAgent.ownerAddress)} />
+										<Metric label="Delegated EOA" value={short(selectedAgent.delegatedEoa)} />
+										<Metric label="Budget" value={formatAtomicCollateral(selectedAgent.budgetAtomic)} />
+										<Metric label="Spent" value={formatAtomicCollateral(selectedAgent.spentAtomic)} />
+										<Metric label="Max trade" value={formatAtomicCollateral(selectedAgent.maxTradeAtomic)} />
+										<Metric label="Next run" value={formatTime(selectedAgent.nextRunAt)} mono={false} />
+									</div>
+									<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+										<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Prompt</p>
+										<p className="mt-2 text-sm leading-relaxed text-foreground">{selectedAgent.prompt}</p>
+									</div>
+									<div className="grid gap-2 sm:grid-cols-2">
+										<Metric label="Prompt hash" value={selectedAgent.promptHash} />
+										<Metric label="Prompt URI" value={selectedAgent.promptUri} />
+										<Metric label="Market address" value={short(selectedMarket?.marketAddress)} detail={selectedMarket?.marketAddress ? 'Verified before live mode' : 'Awaiting testnet deployment'} />
+										<Metric label="Context API" value={selectedMarket?.contextApiUrl ?? 'Not set'} />
+									</div>
+								</>
+							) : (
+								<div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">Select an agent from the registry.</div>
+							)}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Decision</p>
+							<CardTitle className="text-lg">Latest run</CardTitle>
+							<CardDescription>Fetched context, prompt trace, decision, trade side, and execution status.</CardDescription>
+							<CardAction>
+								<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+									<FileJson className="size-5" />
+								</span>
+							</CardAction>
+						</CardHeader>
+						<CardContent>
+							<DecisionPanel run={selectedRun} />
+						</CardContent>
+					</Card>
+				</section>
+
+				<Card>
+					<CardHeader>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Runner</p>
+						<CardTitle className="text-lg">Execution board</CardTitle>
+						<CardDescription>Current backend runner stages for the latest action.</CardDescription>
 						<CardAction>
 							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
 								<CircleDollarSign className="size-5" />
 							</span>
 						</CardAction>
 					</CardHeader>
-					<CardContent className="space-y-4">
-						<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-							{agentOrder.map((name) => (
-								<AgentCard key={name} name={name} status={state.agents[name]} />
-							))}
-						</div>
-						<div className="grid gap-2 md:grid-cols-3">
-							<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">x402-style challenge</p>
-								<p className="mt-1 font-mono text-sm font-medium text-foreground">{state.lastChallenge ? formatAtomicUsdc(state.lastChallenge.amountAtomic) : 'None'}</p>
-								<p className="mt-1 text-xs text-muted-foreground">{state.lastChallenge?.resource ?? 'Run the valid agent to receive a 402 challenge.'}</p>
-							</div>
-							<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Policy decision</p>
-								<p className="mt-1 text-sm font-medium text-foreground">{state.lastPolicyDecision ? (state.lastPolicyDecision.allowed ? 'Approved' : 'Blocked') : 'Pending'}</p>
-								<p className="mt-1 text-xs text-muted-foreground">{state.lastPolicyDecision?.reason ?? 'No policy check has run yet.'}</p>
-							</div>
-							<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Last payment</p>
-								<p className="mt-1 font-mono text-sm font-medium text-foreground">{short(state.lastTxHash)}</p>
-								<p className="mt-1 text-xs text-muted-foreground">{state.lastTxHash ? 'Monad explorer link is in the timeline.' : 'No payment transaction yet.'}</p>
-							</div>
-						</div>
-					</CardContent>
-				</Card>
-
-				<Card>
-					<CardHeader>
-						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Paid intelligence</p>
-						<CardTitle className="text-lg">{state.lastSignalReport?.market.title ?? selectedMarket?.title ?? 'England to beat USA'}</CardTitle>
-						<CardDescription>{state.lastSignalReport?.market.question ?? selectedMarket?.question ?? 'Run the paid signal to unlock signed agent-readable data.'}</CardDescription>
-						<CardAction>
-							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-								<FileJson className="size-5" />
-							</span>
-						</CardAction>
-					</CardHeader>
-					<CardContent className="space-y-4">
-						{state.lastSignalReport ? (
-							<>
-								<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-									<Metric label="Model YES" value={formatProbability(state.lastSignalReport.snapshot.modelProbabilityYes)} detail={state.lastSignalReport.snapshot.matchState} mono={false} />
-									<Metric label="Market implied" value={formatProbability(state.lastSignalReport.snapshot.marketImpliedProbabilityYes)} detail={`${state.lastSignalReport.snapshot.minute}' · ${state.lastSignalReport.snapshot.score}`} mono={false} />
-									<Metric label="Edge" value={formatEdge(state.lastSignalReport.snapshot.edgeBps)} detail={state.lastSignalReport.decisionReason} mono={false} />
-									<Metric label="Confidence" value={formatProbability(state.lastSignalReport.snapshot.confidence)} detail={state.lastSignalReport.snapshot.source} mono={false} />
+					<CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+						{Object.entries(state.agents).map(([name, status]) => (
+							<div className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 p-3" key={name}>
+								<span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', status === 'complete' || status === 'approved' ? 'bg-emerald-500/15 text-emerald-300' : status === 'blocked' || status === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-muted text-muted-foreground')}>
+									{status === 'complete' || status === 'approved' ? <CheckCircle2 className="size-4" /> : status === 'blocked' || status === 'error' ? <XCircle className="size-4" /> : <Bot className="size-4" />}
+								</span>
+								<div className="min-w-0">
+									<p className="truncate text-sm font-medium text-foreground">{name}</p>
+									<p className="text-xs capitalize text-muted-foreground">{status}</p>
 								</div>
-								<div className="grid gap-2 lg:grid-cols-[0.9fr_1.1fr]">
-									<div className="space-y-2">
-										<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-											<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">AI summary</p>
-											<p className="mt-2 text-sm leading-relaxed text-foreground">{state.lastSignalReport.aiSummary}</p>
-										</div>
-										<div className="grid gap-2 sm:grid-cols-2">
-											<Metric label="Decision" value={state.lastSignalReport.agentDecision} detail={state.lastSignalReport.decisionReason} mono={false} />
-											<Metric label="Provider" value={short(state.lastSignalReport.attestation.provider)} detail="Signed data provider" />
-										</div>
-										{state.lastResultPayload ? (
-											<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-												<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Result poster preview</p>
-												<p className="mt-1 text-sm font-medium text-foreground">{state.lastResultPayload.finalScore}</p>
-												<p className="mt-1 text-xs text-muted-foreground">
-													Outcome {state.lastResultPayload.outcome}; contract integration {state.lastResultPayload.contractIntegration}.
-												</p>
-												<p className="mt-2 break-all font-mono text-xs text-muted-foreground">{state.lastResultPayload.evidenceHash}</p>
-											</div>
-										) : null}
-									</div>
-									<JsonPreview label="Signed attestation" value={state.lastSignalReport.attestation} />
-								</div>
-							</>
-						) : (
-							<div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No paid signal unlocked yet. Run the paid signal flow to show the signed attestation.</div>
-						)}
+							</div>
+						))}
 					</CardContent>
 				</Card>
 
@@ -536,7 +590,7 @@ export function App() {
 					<CardHeader>
 						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Audit</p>
 						<CardTitle className="text-lg">Timeline</CardTitle>
-						<CardDescription>Every device signature, policy check, and payment, in order.</CardDescription>
+						<CardDescription>Device signatures, registry reads, context fetches, decisions, revokes, and cleanup actions.</CardDescription>
 					</CardHeader>
 					<CardContent>
 						<Timeline events={state.events} />

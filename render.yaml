@@ -7,6 +7,10 @@ services:
     buildCommand: corepack pnpm install --frozen-lockfile && corepack pnpm --filter @gridplus-monad-agent-vault/api build
     startCommand: corepack pnpm --filter @gridplus-monad-agent-vault/api start
     healthCheckPath: /health
+    disk:
+      name: monad-agent-vault-data
+      mountPath: /var/data
+      sizeGB: 1
 
   - type: web
     name: monad-agent-vault-dapp

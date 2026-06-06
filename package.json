@@ -5,7 +5,7 @@
 	"type": "module",
 	"packageManager": "pnpm@10.30.2",
 	"engines": {
-		"node": ">=20"
+		"node": ">=24"
 	},
 	"scripts": {
 		"dev": "pnpm --parallel --filter @gridplus-monad-agent-vault/api --filter @gridplus-monad-agent-vault/dapp dev",
