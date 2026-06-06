@@ -13,16 +13,17 @@ The demo removes x402 from the core path. The agent no longer buys data from a p
 3. Enable the vault by signing EIP-7702 authorization for a fresh Monad testnet EOA.
 4. Show markets stored in SQLite, including each market's context API URL.
 5. Show agents stored in SQLite, each with an owner address, market, prompt, budget, spent amount, interval, and status.
-6. Run one selected backend agent:
+6. Create or prompt a new agent: the user authors the agent's prompt plus its market, budget, max trade, minimum edge, and interval, then persists it to SQLite via `POST /agents`. The owner/delegated EOA is the paired device account, and the authored prompt is exactly what `DecisionAgent` evaluates at run time. Seeded agents are starting examples, not the only option.
+7. Run one selected backend agent:
    - `RegistryScanner` loads active agents from SQLite.
    - `ContextFetcher` calls the market context API.
    - `DecisionAgent` evaluates the context against the stored prompt.
    - `PolicyGuard` checks budget, interval, market, token, expiry, nonce, and revoke state.
    - `TradeExecutor` calls the delegated EOA to trade against the Augur or Augur-compatible market.
-7. Show a successful testnet transaction when live execution is enabled.
-8. Show blocked over-limit, wrong-market, or revoked execution before spend.
-9. Revoke an agent.
-10. Clear EIP-7702 delegation.
+8. Show a successful testnet transaction when live execution is enabled.
+9. Show blocked over-limit, wrong-market, or revoked execution before spend.
+10. Revoke an agent.
+11. Clear EIP-7702 delegation.
 
 ## Testnet Constants
 
@@ -68,8 +69,28 @@ The first screen should show:
 - GridPlus device status.
 - Active EIP-7702 delegation status.
 - Agent Registry table.
+- Create / prompt agent form (name, prompt, market, budget, max trade, minimum edge, interval).
 - Selected agent details.
 - Market context payload.
 - Last decision trace.
 - Budget and spend state.
 - Timeline of pair, delegate, run, trade, block, revoke, and cleanup actions.
+
+## Branding & Theme
+
+The product is named **AI Agentic Gambling**. It is presented as a World Cup 2026 prediction-market betting desk run by autonomous, device-governed agents.
+
+Header:
+
+- Eyebrow (gold/amber, with a trophy icon): `World Cup 2026 · GridPlus × Monad`.
+- Title (with the green glow treatment): `AI Agentic Gambling`.
+- Subtitle: device-signed mandates govern SQLite-registered agents that read live World Cup market context on Monad testnet and execute bounded prediction-market bets through an EIP-7702 wallet.
+- Page `<title>`: `AI Agentic Gambling · GridPlus × Monad`.
+
+Palette (kept on the shared GridPlus card system, dark mode):
+
+- Primary = pitch green `oklch(0.74 0.17 152)` with dark foreground `oklch(0.2 0.03 152)` (defined in `apps/dapp/src/styles/globals.css` for both `:root` and `.dark`).
+- Accent = gold/amber (`text-amber-300`) for the World Cup eyebrow and trophy motifs.
+- Atmospheric background spotlight = pitch green (`apps/dapp/src/components/ui/background-pattern.tsx`).
+
+Theme tokens live in `globals.css`; do not regenerate them away. The header name, eyebrow, and subtitle above are authoritative — any rebuild of `App.tsx`/`index.html` must use them rather than "Agent Vault" / "GridPlus Monad Agent Vault".

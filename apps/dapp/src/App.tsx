@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AlertTriangle, Bot, Brain, CheckCircle2, CircleDollarSign, Database, ExternalLink, FileJson, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, WalletCards, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, Brain, CheckCircle2, CircleDollarSign, Database, ExternalLink, FileJson, KeyRound, MessageSquareText, Play, PlugZap, RefreshCw, ShieldCheck, ShieldOff, Trash2, Trophy, WalletCards, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { MONAD_NETWORK, type AgentRun, type AuditEvent, type DemoState, type RegisteredAgent, type RegistryMarket } from '@gridplus-monad-agent-vault/shared'
 import { API_BASE_URL, formatError, getState, postAction } from './api'
@@ -267,6 +267,9 @@ export function App() {
 			const next = await getState()
 			setState(next)
 			setSelectedAgentId((current) => current ?? next.registeredAgents[0]?.agentId ?? null)
+			setDelegate((current) => current || next.vault.delegate || '')
+			setDeviceId((current) => current || next.device.deviceId || '')
+			setAppName((current) => current || next.device.appName || 'Monad Agent Vault Demo')
 			setError(null)
 		} catch (err) {
 			setError(formatError(err))
@@ -287,21 +290,6 @@ export function App() {
 		window.addEventListener('unhandledrejection', onUnhandledRejection)
 		return () => window.removeEventListener('unhandledrejection', onUnhandledRejection)
 	}, [])
-
-	useEffect(() => {
-		if (state?.vault.delegate && !delegate) {
-			setDelegate(state.vault.delegate)
-		}
-	}, [delegate, state?.vault.delegate])
-
-	useEffect(() => {
-		if (state?.device.deviceId && !deviceId) {
-			setDeviceId(state.device.deviceId)
-		}
-		if (state?.device.appName && !appName) {
-			setAppName(state.device.appName)
-		}
-	}, [appName, deviceId, state?.device.appName, state?.device.deviceId])
 
 	const run = async (label: string, action: () => Promise<{ state?: DemoState } | DemoState>) => {
 		setBusy(label)
@@ -348,10 +336,12 @@ export function App() {
 			<div className="relative z-10 mx-auto w-full max-w-6xl space-y-6 px-6 py-10">
 				<header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
 					<div>
-						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">GridPlus × Monad</p>
-						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">Agent Vault</h1>
+						<p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">
+							<Trophy className="size-3.5" /> World Cup 2026 · GridPlus × Monad
+						</p>
+						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">AI Agentic Gambling</h1>
 						<p className="mt-3 max-w-2xl text-balance text-sm text-muted-foreground sm:text-base">
-							SQLite-registered agents fetch market context APIs and execute bounded prediction-market decisions through a GridPlus-controlled EIP-7702 wallet.
+							Device-signed mandates govern SQLite-registered agents that read live World Cup market context on Monad testnet and execute bounded prediction-market bets through an EIP-7702 wallet.
 						</p>
 					</div>
 					<div className="flex flex-wrap gap-2 md:justify-end">
