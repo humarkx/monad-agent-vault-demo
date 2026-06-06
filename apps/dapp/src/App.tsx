@@ -4,6 +4,14 @@ import { AlertTriangle, Bot, CheckCircle2, CircleDollarSign, ExternalLink, KeyRo
 import type { LucideIcon } from 'lucide-react'
 import { MONAD_MAINNET, type AgentName, type AuditEvent, type DemoState } from '@gridplus-monad-agent-vault/shared'
 import { API_BASE_URL, formatError, getState, postAction } from './api'
+import { BackgroundPattern } from './components/ui/background-pattern'
+import { Badge } from './components/ui/badge'
+import { Button, buttonVariants } from './components/ui/button'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card'
+import { Input } from './components/ui/input'
+import { Spinner } from './components/ui/spinner'
+import { StatusPill, type StatusPillTone } from './components/ui/status-pill'
+import { cn } from './lib/utils'
 
 const short = (value: string | null | undefined) => (value ? `${value.slice(0, 6)}...${value.slice(-4)}` : 'Not set')
 const compactUrl = (value: string) => value.replace(/^(https?|wss?):\/\//, '')
@@ -19,36 +27,76 @@ const formatAtomicUsdc = (value: string | null | undefined) => {
 const agentOrder: AgentName[] = ['ResearchAgent', 'PaymentAgent', 'PolicyGuard', 'VerifierAgent']
 const deviceModeLabel = (mode: DemoState['device']['mode']) => (mode === 'device' ? 'Device' : 'Local signer')
 
-function StatusPill({ tone, children }: { tone: 'good' | 'warn' | 'bad' | 'neutral'; children: ReactNode }) {
-	return <span className={`status-pill ${tone}`}>{children}</span>
+const agentTone = (status: string): StatusPillTone => {
+	if (status === 'complete' || status === 'approved') return 'success'
+	if (status === 'blocked' || status === 'error') return 'danger'
+	if (status === 'running') return 'info'
+	return 'neutral'
 }
 
-function IconButton({ children, icon: Icon, onClick, disabled = false, variant = 'primary' }: { children: ReactNode; icon: LucideIcon; onClick: () => void; disabled?: boolean; variant?: 'primary' | 'secondary' | 'danger' }) {
+const AGENT_TONE_CLASSES: Record<StatusPillTone, { border: string; chip: string }> = {
+	neutral: { border: 'border-border/60', chip: 'bg-muted text-muted-foreground' },
+	info: { border: 'border-sky-500/40', chip: 'bg-sky-500/15 text-sky-300' },
+	success: { border: 'border-emerald-500/40', chip: 'bg-emerald-500/15 text-emerald-300' },
+	warning: { border: 'border-amber-500/40', chip: 'bg-amber-500/15 text-amber-300' },
+	danger: { border: 'border-rose-500/40', chip: 'bg-rose-500/15 text-rose-300' },
+}
+
+const TIMELINE_DOT: Record<string, string> = {
+	success: 'bg-emerald-400',
+	warning: 'bg-amber-400',
+	error: 'bg-rose-400',
+}
+
+function ExternalLinkButton({ href, children }: { href: string; children: ReactNode }) {
 	return (
-		<button className={`action-button ${variant}`} disabled={disabled} type="button" onClick={onClick}>
-			<Icon aria-hidden="true" size={18} />
+		<a className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))} href={href} rel="noreferrer" target="_blank">
+			<ExternalLink aria-hidden="true" />
 			<span>{children}</span>
-		</button>
+		</a>
 	)
 }
 
-function Metric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function ActionButton({
+	children,
+	icon: Icon,
+	onClick,
+	disabled = false,
+	variant = 'default',
+	className,
+}: {
+	children: ReactNode
+	icon: LucideIcon
+	onClick: () => void
+	disabled?: boolean
+	variant?: 'default' | 'secondary' | 'outline' | 'destructive'
+	className?: string
+}) {
 	return (
-		<div className="metric">
-			<span>{label}</span>
-			<strong>{value}</strong>
-			{detail ? <small>{detail}</small> : null}
+		<Button type="button" size="lg" variant={variant} disabled={disabled} onClick={onClick} className={cn('justify-start', className)}>
+			<Icon aria-hidden="true" />
+			<span>{children}</span>
+		</Button>
+	)
+}
+
+function Metric({ label, value, detail, mono = true }: { label: string; value: string; detail?: string; mono?: boolean }) {
+	return (
+		<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+			<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+			<p className={cn('mt-1 break-words text-sm font-medium text-foreground', mono && 'font-mono')}>{value}</p>
+			{detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
 		</div>
 	)
 }
 
 function DetailItem({ label, value, href }: { label: string; value: string; href?: string }) {
 	return (
-		<div className="detail-item">
-			<span>{label}</span>
-			<strong>{value}</strong>
+		<div className="min-w-0 rounded-lg border border-border/60 bg-background/40 p-3">
+			<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+			<p className="mt-1 break-words font-mono text-sm font-medium text-foreground">{value}</p>
 			{href ? (
-				<a href={href} rel="noreferrer" target="_blank">
+				<a className="mt-1 inline-block text-xs font-medium text-primary hover:underline" href={href} rel="noreferrer" target="_blank">
 					View on Monadscan
 				</a>
 			) : null}
@@ -57,33 +105,37 @@ function DetailItem({ label, value, href }: { label: string; value: string; href
 }
 
 function AgentCard({ name, status }: { name: AgentName; status: string }) {
-	const icon = status === 'complete' || status === 'approved' ? <CheckCircle2 size={18} /> : status === 'blocked' || status === 'error' ? <XCircle size={18} /> : <Bot size={18} />
+	const tone = agentTone(status)
+	const toneClasses = AGENT_TONE_CLASSES[tone]
+	const icon = status === 'complete' || status === 'approved' ? <CheckCircle2 className="size-4" /> : status === 'blocked' || status === 'error' ? <XCircle className="size-4" /> : <Bot className="size-4" />
 	return (
-		<div className={`agent-card ${status}`}>
-			<div>{icon}</div>
-			<strong>{name}</strong>
-			<span>{status}</span>
+		<div className={cn('flex items-center gap-3 rounded-lg border bg-muted/20 p-3', toneClasses.border)}>
+			<span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md', toneClasses.chip)}>{icon}</span>
+			<div className="min-w-0">
+				<p className="truncate text-sm font-medium text-foreground">{name}</p>
+				<p className="text-xs capitalize text-muted-foreground">{status}</p>
+			</div>
 		</div>
 	)
 }
 
 function Timeline({ events }: { events: AuditEvent[] }) {
 	if (events.length === 0) {
-		return <div className="empty-state">No events yet. Connect a device to start the demo.</div>
+		return <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-center text-sm text-muted-foreground">No events yet. Connect a device to start the demo.</div>
 	}
 	return (
-		<div className="timeline">
+		<div className="space-y-4">
 			{events.map((event) => (
-				<div className={`timeline-row ${event.status}`} key={event.id}>
-					<div className="timeline-dot" />
-					<div>
-						<div className="timeline-heading">
-							<strong>{event.title}</strong>
-							<span>{new Date(event.at).toLocaleTimeString()}</span>
+				<div className="grid grid-cols-[14px_1fr] gap-3" key={event.id}>
+					<span className={cn('mt-1.5 size-2.5 rounded-full shadow-[0_0_8px_currentColor]', TIMELINE_DOT[event.status] ?? 'bg-sky-400')} />
+					<div className="min-w-0">
+						<div className="flex items-baseline justify-between gap-3">
+							<p className="text-sm font-medium text-foreground">{event.title}</p>
+							<span className="shrink-0 text-xs text-muted-foreground">{new Date(event.at).toLocaleTimeString()}</span>
 						</div>
-						<p>{event.detail}</p>
+						<p className="mt-1 text-sm text-muted-foreground">{event.detail}</p>
 						{event.txHash ? (
-							<a href={MONAD_MAINNET.explorer.txUrl(event.txHash)} rel="noreferrer" target="_blank">
+							<a className="mt-1 inline-block font-mono text-xs font-medium text-primary hover:underline" href={MONAD_MAINNET.explorer.txUrl(event.txHash)} rel="noreferrer" target="_blank">
 								{short(event.txHash)}
 							</a>
 						) : null}
@@ -98,31 +150,30 @@ function PairedDeviceCard({ state, busy, onReset }: { state: DemoState; busy: bo
 	const owner = state.device.owner
 	const ownerUrl = owner ? MONAD_MAINNET.explorer.addressUrl(owner) : undefined
 	return (
-		<div className="paired-card">
-			<div className="paired-card-header">
-				<div className="paired-icon">
-					<CheckCircle2 aria-hidden="true" size={22} />
+		<div className="space-y-4 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
+			<div className="flex items-center gap-3">
+				<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+					<CheckCircle2 aria-hidden="true" className="size-5" />
+				</span>
+				<div className="min-w-0 flex-1">
+					<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">GridPlus device paired</p>
+					<p className="truncate text-sm font-medium text-foreground">{state.device.deviceId ?? 'Hosted device'}</p>
+					<p className="truncate text-xs text-muted-foreground">{state.device.appName ?? 'Monad Agent Vault Demo'}</p>
 				</div>
-				<div>
-					<span>GridPlus device paired</span>
-					<strong>{state.device.deviceId ?? 'Hosted device'}</strong>
-					<small>{state.device.appName ?? 'Monad Agent Vault Demo'}</small>
-				</div>
-				<StatusPill tone="good">Ready</StatusPill>
+				<Badge variant="secondary" className="border border-emerald-500/40 bg-emerald-500/15 text-emerald-200">
+					Ready
+				</Badge>
 			</div>
-			<div className="detail-grid">
+			<div className="grid gap-2 sm:grid-cols-3">
 				<DetailItem label="Owner signer" value={short(owner)} href={ownerUrl} />
 				<DetailItem label="Relay" value={compactUrl(state.gridplus.connectRelayUrl)} />
 				<DetailItem label="Simulator MQTT" value={compactUrl(state.gridplus.simulatorMqttWsUrl)} />
 			</div>
-			<div className="paired-actions">
-				<a className="action-link secondary" href={state.gridplus.simulatorUrl} rel="noreferrer" target="_blank">
-					<ExternalLink aria-hidden="true" size={18} />
-					<span>Open hosted device</span>
-				</a>
-				<IconButton icon={RefreshCw} variant="secondary" onClick={onReset} disabled={busy}>
+			<div className="flex flex-wrap gap-2">
+				<ExternalLinkButton href={state.gridplus.simulatorUrl}>Open hosted device</ExternalLinkButton>
+				<ActionButton icon={RefreshCw} variant="outline" onClick={onReset} disabled={busy}>
 					Reset session
-				</IconButton>
+				</ActionButton>
 			</div>
 		</div>
 	)
@@ -203,153 +254,188 @@ export function App() {
 
 	if (!state) {
 		return (
-			<div className="loading">
-				<span>Loading Monad Agent Vault...</span>
-				{error ? <small>{error}</small> : null}
-			</div>
+			<main className="relative grid min-h-svh w-full place-items-center text-foreground">
+				<BackgroundPattern />
+				<div className="relative z-10 flex flex-col items-center gap-3 text-center">
+					<Spinner className="size-6 text-primary" />
+					<p className="text-sm text-muted-foreground">Loading Monad Agent Vault…</p>
+					{error ? <p className="max-w-md text-sm text-destructive">{error}</p> : null}
+				</div>
+			</main>
 		)
 	}
 
 	return (
-		<main className="app-shell">
-			<section className="topbar">
-				<div>
-					<p className="eyebrow">GridPlus x Monad</p>
-					<h1>Agent Vault</h1>
-					<p className="subtitle">A mainnet-only EIP-7702 demo where GridPlus device-signed mandates control autonomous x402-style payments.</p>
-				</div>
-				<div className="network-panel">
-					<StatusPill tone="good">{MONAD_MAINNET.caip2}</StatusPill>
-					<StatusPill tone={state.rpcConfigured ? 'good' : 'warn'}>{state.rpcConfigured ? 'RPC ready' : 'RPC missing'}</StatusPill>
-				</div>
-			</section>
+		<main className="relative min-h-svh w-full text-foreground">
+			<BackgroundPattern />
 
-			{error ? (
-				<div className="error-banner">
-					<AlertTriangle size={18} />
-					<span>{error}</span>
-				</div>
-			) : null}
-
-			<section className="grid two">
-				<div className="panel control-panel">
-					<div className="panel-heading">
-						<div>
-							<p className="eyebrow">Controls</p>
-							<h2>Run the live story</h2>
-						</div>
-						<StatusPill tone={state.device.paired ? 'good' : 'neutral'}>{deviceModeLabel(state.device.mode)}</StatusPill>
+			<div className="relative z-10 mx-auto w-full max-w-6xl space-y-6 px-6 py-10">
+				<header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+					<div>
+						<p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">GridPlus × Monad</p>
+						<h1 className="text-glow text-4xl font-bold tracking-tight sm:text-5xl">Agent Vault</h1>
+						<p className="mt-3 max-w-2xl text-balance text-sm text-muted-foreground sm:text-base">
+							A mainnet-only EIP-7702 demo where GridPlus device-signed mandates control autonomous x402-style payments.
+						</p>
 					</div>
-					<div className="actions">
-						{state.device.paired ? (
-							<PairedDeviceCard state={state} busy={Boolean(busy)} onReset={() => run('reset-session', () => postAction('/device/reset-session'))} />
-						) : (
-							<div className="setup-card">
-								<div className="setup-grid">
-									<input aria-label="GridPlus device ID" placeholder="Device ID" value={deviceId} onChange={(event) => setDeviceId(event.target.value)} />
-									<input aria-label="GridPlus app name" placeholder="App name" value={appName} onChange={(event) => setAppName(event.target.value)} />
-									<a className="action-link secondary" href={state.gridplus.simulatorUrl} rel="noreferrer" target="_blank">
-										<ExternalLink aria-hidden="true" size={18} />
-										<span>Open hosted device</span>
-									</a>
-									<IconButton icon={PlugZap} onClick={() => run('connect', () => postAction('/device/setup', { mode: 'device', deviceId: selectedDeviceId, appName: selectedAppName }))} disabled={Boolean(busy) || !selectedDeviceId}>
-										Connect device
-									</IconButton>
+					<div className="flex flex-wrap gap-2 md:justify-end">
+						<StatusPill tone="info" label={MONAD_MAINNET.caip2} />
+						<StatusPill tone={state.rpcConfigured ? 'success' : 'warning'} label={state.rpcConfigured ? 'RPC ready' : 'RPC missing'} />
+					</div>
+				</header>
+
+				{error ? (
+					<div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+						<AlertTriangle className="size-4 shrink-0" />
+						<span className="break-words">{error}</span>
+					</div>
+				) : null}
+
+				<section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+					<Card>
+						<CardHeader>
+							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Controls</p>
+							<CardTitle className="text-lg">Run the live story</CardTitle>
+							<CardDescription>Pair a device, enable the vault, sign a mandate, then run the agents.</CardDescription>
+							<CardAction>
+								<Badge variant={state.device.paired ? 'secondary' : 'outline'}>{deviceModeLabel(state.device.mode)}</Badge>
+							</CardAction>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							{state.device.paired ? (
+								<PairedDeviceCard state={state} busy={Boolean(busy)} onReset={() => run('reset-session', () => postAction('/device/reset-session'))} />
+							) : (
+								<div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-4">
+									<div className="grid gap-2 sm:grid-cols-2">
+										<Input aria-label="GridPlus device ID" placeholder="Device ID" value={deviceId} onChange={(event) => setDeviceId(event.target.value)} />
+										<Input aria-label="GridPlus app name" placeholder="App name" value={appName} onChange={(event) => setAppName(event.target.value)} />
+									</div>
+									<div className="flex flex-wrap gap-2">
+										<ExternalLinkButton href={state.gridplus.simulatorUrl}>Open hosted device</ExternalLinkButton>
+										<ActionButton
+											icon={PlugZap}
+											onClick={() => run('connect', () => postAction('/device/setup', { mode: 'device', deviceId: selectedDeviceId, appName: selectedAppName }))}
+											disabled={Boolean(busy) || !selectedDeviceId}
+										>
+											Connect device
+										</ActionButton>
+									</div>
+									<div className="flex flex-wrap gap-2">
+										<Input className="min-w-[200px] flex-1" aria-label="Pairing code" placeholder="Pairing code from device" value={pairingCode} onChange={(event) => setPairingCode(event.target.value)} />
+										<ActionButton icon={KeyRound} variant="outline" onClick={() => run('pair', () => postAction('/device/pair', { pairingCode }))} disabled={Boolean(busy) || !pairingCode}>
+											Pair device
+										</ActionButton>
+									</div>
 								</div>
-								<div className="pairing-row">
-									<input aria-label="Pairing code" placeholder="Pairing code from device" value={pairingCode} onChange={(event) => setPairingCode(event.target.value)} />
-									<IconButton icon={KeyRound} variant="secondary" onClick={() => run('pair', () => postAction('/device/pair', { pairingCode }))} disabled={Boolean(busy) || !pairingCode}>
-										Pair device
-									</IconButton>
-								</div>
+							)}
+
+							<div className="flex flex-wrap gap-2">
+								<Input className="min-w-[220px] flex-1" aria-label="Delegate contract" placeholder="AgentVaultDelegate address" value={delegate} onChange={(event) => setDelegate(event.target.value)} />
+								<ActionButton icon={KeyRound} onClick={() => run('authorize', () => postAction('/vault/authorize-7702', delegate ? { delegate } : {}))} disabled={Boolean(busy) || !state.device.owner}>
+									Enable vault
+								</ActionButton>
 							</div>
-						)}
-						<div className="inline-input">
-							<input aria-label="Delegate contract" placeholder="AgentVaultDelegate address" value={delegate} onChange={(event) => setDelegate(event.target.value)} />
-							<IconButton icon={KeyRound} onClick={() => run('authorize', () => postAction('/vault/authorize-7702', delegate ? { delegate } : {}))} disabled={Boolean(busy) || !state.device.owner}>
-								Enable vault
-							</IconButton>
+
+							<div className="grid gap-2 sm:grid-cols-2">
+								<ActionButton icon={ShieldCheck} variant="outline" onClick={() => run('mandate', () => postAction('/mandates/sign', { maxTotalAtomic: '50000', maxPerPaymentAtomic: '10000', expiresInSeconds: 3600 }))} disabled={Boolean(busy) || !state.vault.delegate}>
+									Sign mandate
+								</ActionButton>
+								<ActionButton icon={Play} onClick={() => run('valid', () => postAction('/agent/run-valid-demo'))} disabled={Boolean(busy) || !state.mandate}>
+									Run valid agent
+								</ActionButton>
+								<ActionButton icon={ShieldOff} variant="outline" onClick={() => run('blocked', () => postAction('/agent/run-blocked-demo'))} disabled={Boolean(busy) || !state.mandate}>
+									Run blocked agent
+								</ActionButton>
+								<ActionButton icon={Trash2} variant="destructive" onClick={() => run('revoke', () => postAction('/mandates/revoke'))} disabled={Boolean(busy) || !state.mandate}>
+									Revoke mandate
+								</ActionButton>
+								<ActionButton icon={RefreshCw} variant="outline" className="sm:col-span-2" onClick={() => run('clear', () => postAction('/vault/clear-delegation'))} disabled={Boolean(busy) || !state.device.owner}>
+									Clear delegation
+								</ActionButton>
+							</div>
+
+							{busy ? (
+								<p className="flex items-center gap-2 text-sm text-muted-foreground">
+									<Spinner className="size-3.5" />
+									Running {busy}…
+								</p>
+							) : null}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader>
+							<p className="text-xs font-semibold uppercase tracking-widest text-primary">Vault</p>
+							<CardTitle className="text-lg">Mainnet status</CardTitle>
+							<CardDescription>Live on-chain and orchestration backend state.</CardDescription>
+							<CardAction>
+								<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+									<WalletCards className="size-5" />
+								</span>
+							</CardAction>
+						</CardHeader>
+						<CardContent>
+							<div className="grid gap-2 sm:grid-cols-2">
+								<Metric label="Owner EOA" value={short(state.device.owner)} detail={state.device.paired ? `${state.device.deviceId ?? 'Device'} paired` : 'Connect required'} />
+								<Metric label="Delegate" value={short(state.vault.delegate)} detail={state.vault.delegated ? 'Active code detected/submitted' : 'Not active'} />
+								<Metric label="Budget left" value={formatAtomicUsdc(remaining)} detail={state.mandate?.revoked ? 'Revoked' : 'Mandate controlled'} />
+								<Metric label="Demo API" value={compactUrl(API_BASE_URL)} detail="Standalone orchestration backend" />
+								<Metric label="Device relay" value={compactUrl(state.gridplus.connectRelayUrl)} detail="Production GridPlus API path" />
+								<Metric label="Simulator MQTT" value={compactUrl(state.gridplus.simulatorMqttWsUrl)} detail="Production Web MQTT broker" />
+								<Metric label="Provision API" value={compactUrl(state.gridplus.simulatorProvisionUrl)} detail="Hosted device credentials" />
+							</div>
+						</CardContent>
+					</Card>
+				</section>
+
+				<Card>
+					<CardHeader>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Agents</p>
+						<CardTitle className="text-lg">Workflow board</CardTitle>
+						<CardDescription>Agent states and the latest x402-style policy decision.</CardDescription>
+						<CardAction>
+							<span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+								<CircleDollarSign className="size-5" />
+							</span>
+						</CardAction>
+					</CardHeader>
+					<CardContent className="space-y-4">
+						<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+							{agentOrder.map((name) => (
+								<AgentCard key={name} name={name} status={state.agents[name]} />
+							))}
 						</div>
-						<IconButton icon={ShieldCheck} variant="secondary" onClick={() => run('mandate', () => postAction('/mandates/sign', { maxTotalAtomic: '50000', maxPerPaymentAtomic: '10000', expiresInSeconds: 3600 }))} disabled={Boolean(busy) || !state.vault.delegate}>
-							Sign mandate
-						</IconButton>
-						<IconButton icon={Play} onClick={() => run('valid', () => postAction('/agent/run-valid-demo'))} disabled={Boolean(busy) || !state.mandate}>
-							Run valid agent
-						</IconButton>
-						<IconButton icon={ShieldOff} variant="secondary" onClick={() => run('blocked', () => postAction('/agent/run-blocked-demo'))} disabled={Boolean(busy) || !state.mandate}>
-							Run blocked agent
-						</IconButton>
-						<IconButton icon={Trash2} variant="danger" onClick={() => run('revoke', () => postAction('/mandates/revoke'))} disabled={Boolean(busy) || !state.mandate}>
-							Revoke mandate
-						</IconButton>
-						<IconButton icon={RefreshCw} variant="secondary" onClick={() => run('clear', () => postAction('/vault/clear-delegation'))} disabled={Boolean(busy) || !state.device.owner}>
-							Clear delegation
-						</IconButton>
-					</div>
-					{busy ? <p className="busy">Running {busy}...</p> : null}
-				</div>
-
-				<div className="panel">
-					<div className="panel-heading">
-						<div>
-							<p className="eyebrow">Vault</p>
-							<h2>Mainnet status</h2>
+						<div className="grid gap-2 md:grid-cols-3">
+							<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">x402-style challenge</p>
+								<p className="mt-1 font-mono text-sm font-medium text-foreground">{state.lastChallenge ? formatAtomicUsdc(state.lastChallenge.amountAtomic) : 'None'}</p>
+								<p className="mt-1 text-xs text-muted-foreground">{state.lastChallenge?.resource ?? 'Run the valid agent to receive a 402 challenge.'}</p>
+							</div>
+							<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Policy decision</p>
+								<p className="mt-1 text-sm font-medium text-foreground">{state.lastPolicyDecision ? (state.lastPolicyDecision.allowed ? 'Approved' : 'Blocked') : 'Pending'}</p>
+								<p className="mt-1 text-xs text-muted-foreground">{state.lastPolicyDecision?.reason ?? 'No policy check has run yet.'}</p>
+							</div>
+							<div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+								<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Last payment</p>
+								<p className="mt-1 font-mono text-sm font-medium text-foreground">{short(state.lastTxHash)}</p>
+								<p className="mt-1 text-xs text-muted-foreground">{state.lastTxHash ? 'Monad explorer link is in the timeline.' : 'No payment transaction yet.'}</p>
+							</div>
 						</div>
-						<WalletCards size={24} />
-					</div>
-					<div className="metrics">
-						<Metric label="Owner EOA" value={short(state.device.owner)} detail={state.device.paired ? `${state.device.deviceId ?? 'Device'} paired` : 'Connect required'} />
-						<Metric label="Delegate" value={short(state.vault.delegate)} detail={state.vault.delegated ? 'Active code detected/submitted' : 'Not active'} />
-						<Metric label="Budget left" value={formatAtomicUsdc(remaining)} detail={state.mandate?.revoked ? 'Revoked' : 'Mandate controlled'} />
-						<Metric label="Demo API" value={compactUrl(API_BASE_URL)} detail="Standalone orchestration backend" />
-						<Metric label="Device relay" value={compactUrl(state.gridplus.connectRelayUrl)} detail="Production GridPlus API path" />
-						<Metric label="Simulator MQTT" value={compactUrl(state.gridplus.simulatorMqttWsUrl)} detail="Production Web MQTT broker" />
-						<Metric label="Provision API" value={compactUrl(state.gridplus.simulatorProvisionUrl)} detail="Hosted device credentials" />
-					</div>
-				</div>
-			</section>
+					</CardContent>
+				</Card>
 
-			<section className="panel">
-				<div className="panel-heading">
-					<div>
-						<p className="eyebrow">Agents</p>
-						<h2>Workflow board</h2>
-					</div>
-					<CircleDollarSign size={24} />
-				</div>
-				<div className="agent-grid">
-					{agentOrder.map((name) => (
-						<AgentCard key={name} name={name} status={state.agents[name]} />
-					))}
-				</div>
-				<div className="challenge-grid">
-					<div>
-						<span>x402-style challenge</span>
-						<strong>{state.lastChallenge ? formatAtomicUsdc(state.lastChallenge.amountAtomic) : 'None'}</strong>
-						<small>{state.lastChallenge?.resource ?? 'Run the valid agent to receive a 402 challenge.'}</small>
-					</div>
-					<div>
-						<span>Policy decision</span>
-						<strong>{state.lastPolicyDecision ? (state.lastPolicyDecision.allowed ? 'Approved' : 'Blocked') : 'Pending'}</strong>
-						<small>{state.lastPolicyDecision?.reason ?? 'No policy check has run yet.'}</small>
-					</div>
-					<div>
-						<span>Last payment</span>
-						<strong>{short(state.lastTxHash)}</strong>
-						<small>{state.lastTxHash ? 'Monad explorer link is in the timeline.' : 'No payment transaction yet.'}</small>
-					</div>
-				</div>
-			</section>
-
-			<section className="panel">
-				<div className="panel-heading">
-					<div>
-						<p className="eyebrow">Audit</p>
-						<h2>Timeline</h2>
-					</div>
-				</div>
-				<Timeline events={state.events} />
-			</section>
+				<Card>
+					<CardHeader>
+						<p className="text-xs font-semibold uppercase tracking-widest text-primary">Audit</p>
+						<CardTitle className="text-lg">Timeline</CardTitle>
+						<CardDescription>Every device signature, policy check, and payment, in order.</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<Timeline events={state.events} />
+					</CardContent>
+				</Card>
+			</div>
 		</main>
 	)
 }
