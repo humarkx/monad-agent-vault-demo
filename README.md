@@ -1,5 +1,9 @@
 # GridPlus Monad Agent Vault Demo
 
+<p align="center">
+  <img src="https://i.ibb.co/MyrpjJmy/ai-gambling.png" alt="AI Agentic Gambling dapp" width="800" />
+</p>
+
 Standalone public demo for a Monad mainnet-only GridPlus Agent Vault.
 
 The demo shows a fresh GridPlus-controlled EOA delegating to an `AgentVaultDelegate` through EIP-7702, signing a spending mandate, and letting deterministic agents pay an x402-style service with tiny USDC payments on Monad mainnet.
