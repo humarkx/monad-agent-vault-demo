@@ -67,3 +67,30 @@ export async function submitAuthorizationTransaction(owner: Address, authorizati
 export async function getDelegatedCode(owner: Address): Promise<Hex> {
 	return getPublicClient().getCode({ address: owner }).then((code) => code ?? '0x')
 }
+
+/**
+ * Broadcasts a real on-chain transaction from the backend agent wallet, targeting the
+ * AgentVaultDelegate (Augur-compatible market) contract.
+ *
+ * Demo only: when an agent is created we mock the "user" transaction by sending an actual
+ * 0-value tx to the delegate contract, signed with the backend AGENT_PRIVATE_KEY. This proves
+ * the end-to-end flow (a verifiable tx hash on Monad showing interaction with the market
+ * contract) without ever using real user keys.
+ */
+export async function submitAgentCreationTransaction(agentId: string): Promise<Hex> {
+	if (!config.AGENT_VAULT_DELEGATE_ADDRESS) {
+		throw new Error('AGENT_VAULT_DELEGATE_ADDRESS is required to send the agent-creation transaction.')
+	}
+	const walletClient = getAgentWalletClient()
+	const account = walletClient.account
+	if (!account) {
+		throw new Error('Agent wallet client is missing an account.')
+	}
+	return walletClient.sendTransaction({
+		account,
+		to: config.AGENT_VAULT_DELEGATE_ADDRESS as Address,
+		value: 0n,
+		// Tag the tx with the agent id so it is identifiable in the explorer.
+		data: `0x${Buffer.from(`agent:${agentId}`, 'utf8').toString('hex')}` as Hex,
+	})
+}

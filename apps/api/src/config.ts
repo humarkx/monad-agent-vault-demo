@@ -59,8 +59,11 @@ export const config: DemoConfig = {
 	API_CORS_ORIGINS: ['http://localhost:5173', 'https://monad-agent-vault-dapp.onrender.com'],
 	MONAD_RPC_URL: 'https://rpc.contract.dev/54086de44209441ee2f51e3f4a579aa1',
 	SQLITE_DB_FILE: process.env.SQLITE_DB_FILE ?? (existsSync('/var/data') ? '/var/data/agent-vault.sqlite' : join(repoRoot, 'data/agent-vault.sqlite')),
-	SPONSOR_PRIVATE_KEY: '0x6501069c5fab311324634f4a44cc729d29a93a900f5064287750a53f8bca3c39',
-	AGENT_PRIVATE_KEY: '0x6501069c5fab311324634f4a44cc729d29a93a900f5064287750a53f8bca3c39',
+	// Demo backend wallet: signs ALL agent transactions on the backend (including the
+	// mocked "user" tx broadcast on agent creation). We intentionally never touch real
+	// user keys in this demo — everything is signed with this single backend PK.
+	SPONSOR_PRIVATE_KEY: '0x3cddaddcb35aa39b2543bab965f0fb2a344a80d7d3cd1aed922bb6999a973725',
+	AGENT_PRIVATE_KEY: '0x3cddaddcb35aa39b2543bab965f0fb2a344a80d7d3cd1aed922bb6999a973725',
 	AGENT_VAULT_DELEGATE_ADDRESS: '0xe52C75d2705537BaD9a6ffC13EAf3120df3bEB5D',
 	GRIDPLUS_SIGNER_MODE: 'device',
 	GRIDPLUS_DEVICE_ID: '6OJVRM',

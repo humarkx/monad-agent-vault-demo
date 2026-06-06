@@ -19,7 +19,7 @@ import {
 } from '@gridplus-monad-agent-vault/shared'
 import { createX402FetchClientDescription, publishResultPreview, requestSignalChallenge, runAgentDemo, runEventIntelligenceDemo, unlockPaidSignal } from './agent'
 import { config } from './config'
-import { getDelegatedCode, getPublicClient, rpcConfigured, submitAuthorizationTransaction } from './monad'
+import { getDelegatedCode, getPublicClient, rpcConfigured, submitAgentCreationTransaction, submitAuthorizationTransaction } from './monad'
 import { bindAgentsToOwner, createAgent, createMarket, getAgent, getMarket, getRegistrySnapshot, listAgents, listMarkets, listRuns, listRunsForAgent, revokeAgent } from './registry-db'
 import { getStoredMarketContext, runDueAgents, runRegisteredAgent } from './registry-runner'
 import { addEvent, getActiveMandate, getState, patchState } from './state'
@@ -102,7 +102,33 @@ routes.get('/context/markets/:marketId', (c) => c.json(getStoredMarketContext(c.
 
 routes.get('/agents', (c) => c.json({ agents: listAgents() }))
 
-routes.post('/agents', async (c) => c.json({ agent: createAgent(createAgentRequestSchema.parse(await jsonBody(c))), state: hydratedState() }))
+routes.post('/agents', async (c) => {
+	const agent = createAgent(createAgentRequestSchema.parse(await jsonBody(c)))
+
+	// Demo: broadcast a real on-chain "user" tx on creation, signed by the backend wallet.
+	// We never use real user keys here — the backend AGENT_PRIVATE_KEY stands in for the user.
+	let txHash: string | null = null
+	if (rpcConfigured) {
+		try {
+			txHash = await submitAgentCreationTransaction(agent.agentId)
+			addEvent({
+				actor: 'Owner',
+				title: `${agent.name} created on-chain`,
+				detail: `Creation tx ${txHash} sent to market contract ${config.AGENT_VAULT_DELEGATE_ADDRESS} on Monad.`,
+				status: 'success',
+			})
+		} catch (error) {
+			addEvent({
+				actor: 'Owner',
+				title: `${agent.name} creation tx failed`,
+				detail: error instanceof Error ? error.message : String(error),
+				status: 'warning',
+			})
+		}
+	}
+
+	return c.json({ agent, txHash, state: hydratedState() })
+})
 
 routes.get('/agents/:agentId', (c) => {
 	const agent = getAgent(c.req.param('agentId'))
