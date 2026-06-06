@@ -1,0 +1,14 @@
+node_modules
+dist
+.vite
+.turbo
+.env
+.env.local
+.gridplus-client-state
+.gridplus-app-secret
+cache
+out
+broadcast
+coverage
+*.log
+.tmp-*

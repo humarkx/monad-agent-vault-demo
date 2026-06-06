@@ -1,0 +1,221 @@
+import { Hono } from 'hono'
+import { randomBytes } from 'node:crypto'
+import type { Address } from 'viem'
+import {
+	authorize7702RequestSchema,
+	DEMO_SERVICE,
+	devicePairRequestSchema,
+	deviceSetupRequestSchema,
+	MONAD_MAINNET,
+	signMandateRequestSchema,
+} from '@gridplus-monad-agent-vault/shared'
+import { buildResearchChallenge, createX402FetchClientDescription, runAgentDemo } from './agent'
+import { config } from './config'
+import { getDelegatedCode, getPublicClient, rpcConfigured, submitAuthorizationTransaction } from './monad'
+import { addEvent, getActiveMandate, getState, patchState } from './state'
+import { createNonce, getStoredDeviceContext, pairDevice, resetDeviceSession, setupDevice, sign7702Authorization, signMandate } from './signer'
+
+const jsonBody = async (c: { req: { json: () => Promise<unknown> } }) => {
+	try {
+		return await c.req.json()
+	} catch {
+		return {}
+	}
+}
+
+export const routes = new Hono()
+
+const stateWithStoredDeviceContext = () => {
+	const state = getState()
+	if (state.device.paired) {
+		return state
+	}
+	const stored = getStoredDeviceContext()
+	if ((!state.device.deviceId && stored.deviceId) || state.device.appName !== stored.appName) {
+		return patchState({
+			device: {
+				...state.device,
+				deviceId: stored.deviceId,
+				appName: stored.appName,
+			},
+		})
+	}
+	return state
+}
+
+routes.get('/health', (c) =>
+	c.json({
+		ok: true,
+		network: MONAD_MAINNET.caip2,
+		rpcConfigured,
+		gridplus: {
+			connectRelayUrl: config.GRIDPLUS_BASE_URL,
+			simulatorUrl: config.GRIDPLUS_SIMULATOR_URL,
+			simulatorMqttWsUrl: config.GRIDPLUS_SIMULATOR_MQTT_WS_URL,
+			simulatorProvisionUrl: config.GRIDPLUS_SIMULATOR_PROVISION_URL,
+		},
+		x402: createX402FetchClientDescription(),
+	}),
+)
+
+routes.get('/demo/state', (c) => c.json(stateWithStoredDeviceContext()))
+
+routes.post('/device/setup', async (c) => {
+	const input = deviceSetupRequestSchema.parse(await jsonBody(c))
+	const result = await setupDevice(input)
+	patchState({
+		device: {
+			mode: result.mode,
+			paired: result.paired,
+			owner: result.owner,
+			deviceId: result.deviceId,
+			appName: result.appName,
+		},
+	})
+	addEvent({
+		actor: 'GridPlus',
+		title: result.paired ? 'Device connected' : 'Device session opened',
+		detail: result.mode === 'device' ? (result.owner ? `GridPlus device ready for ${result.owner}.` : 'GridPlus device reached; enter the pairing code to authorize this app.') : `Local signer ready for ${result.owner}.`,
+		status: result.paired ? 'success' : 'warning',
+	})
+	return c.json({ paired: result.paired, owner: result.owner, state: getState() })
+})
+
+routes.post('/device/pair', async (c) => {
+	const input = devicePairRequestSchema.parse(await jsonBody(c))
+	const result = await pairDevice(input.pairingCode)
+	patchState({ device: { ...getState().device, paired: result.paired, owner: result.owner, deviceId: result.deviceId, appName: result.appName } })
+	addEvent({ actor: 'GridPlus', title: 'Pairing completed', detail: result.paired ? `Device pairing succeeded for ${result.owner}.` : 'Device pairing did not complete.', status: result.paired ? 'success' : 'warning' })
+	return c.json({ paired: result.paired, owner: result.owner, state: getState() })
+})
+
+routes.post('/device/reset-session', (c) => {
+	resetDeviceSession()
+	patchState({
+		device: {
+			...getState().device,
+			paired: false,
+			owner: null,
+			deviceId: null,
+			appName: config.GRIDPLUS_APP_NAME,
+		},
+	})
+	addEvent({ actor: 'GridPlus', title: 'Device session reset', detail: 'Stored SDK session was cleared. Connect the device again before pairing.', status: 'warning' })
+	return c.json({ state: getState() })
+})
+
+routes.post('/vault/authorize-7702', async (c) => {
+	const input = authorize7702RequestSchema.parse(await jsonBody(c))
+	const state = getState()
+	if (!state.device.owner) {
+		throw new Error('Connect GridPlus before enabling EIP-7702 delegation.')
+	}
+	const delegate = (input.delegate ?? config.AGENT_VAULT_DELEGATE_ADDRESS) as Address | undefined
+	if (!delegate) {
+		throw new Error('AGENT_VAULT_DELEGATE_ADDRESS or request delegate is required.')
+	}
+
+	const nonce = rpcConfigured ? await getPublicClient().getTransactionCount({ address: state.device.owner as Address }) : 0
+	const authorization = await sign7702Authorization({ mode: state.device.mode, delegate, nonce })
+	let txHash = null
+	if (config.SPONSOR_PRIVATE_KEY && rpcConfigured) {
+		txHash = await submitAuthorizationTransaction(state.device.owner as Address, authorization)
+	}
+
+	patchState({
+		vault: {
+			...state.vault,
+			delegate,
+			delegated: Boolean(txHash),
+			authorizationTxHash: txHash,
+		},
+	})
+	addEvent({
+		actor: 'GridPlus',
+		title: 'EIP-7702 authorization signed',
+		detail: txHash ? 'Authorization submitted on Monad mainnet.' : 'Authorization signed; set SPONSOR_PRIVATE_KEY to submit it live.',
+		status: txHash ? 'success' : 'info',
+		txHash: txHash ?? undefined,
+	})
+	return c.json({ authorization, txHash, state: getState() })
+})
+
+routes.post('/vault/check-delegation', async (c) => {
+	const state = getState()
+	if (!state.device.owner || !rpcConfigured) {
+		return c.json({ code: '0x', delegated: false, state })
+	}
+	const code = await getDelegatedCode(state.device.owner as Address)
+	const delegated = code !== '0x'
+	patchState({ vault: { ...state.vault, delegated } })
+	return c.json({ code, delegated, state: getState() })
+})
+
+routes.post('/vault/clear-delegation', async (c) => {
+	const state = getState()
+	if (!state.device.owner) {
+		throw new Error('No connected owner to clear.')
+	}
+	const nonce = rpcConfigured ? await getPublicClient().getTransactionCount({ address: state.device.owner as Address }) : 0
+	const zeroDelegate = '0x0000000000000000000000000000000000000000' as Address
+	const authorization = await sign7702Authorization({ mode: state.device.mode, delegate: zeroDelegate, nonce })
+	let txHash = null
+	if (config.SPONSOR_PRIVATE_KEY && rpcConfigured) {
+		txHash = await submitAuthorizationTransaction(state.device.owner as Address, authorization)
+	}
+	patchState({
+		vault: {
+			...state.vault,
+			delegated: false,
+			clearDelegationTxHash: txHash,
+		},
+	})
+	addEvent({ actor: 'GridPlus', title: 'Delegation clear requested', detail: txHash ? 'Clear-delegation transaction submitted.' : 'Clear authorization signed but not submitted.', status: txHash ? 'success' : 'warning', txHash: txHash ?? undefined })
+	return c.json({ authorization, txHash, state: getState() })
+})
+
+routes.post('/mandates/sign', async (c) => {
+	const input = signMandateRequestSchema.parse(await jsonBody(c))
+	const state = getState()
+	if (!state.device.owner || !state.vault.delegate) {
+		throw new Error('Connect GridPlus and set a delegate before signing a mandate.')
+	}
+	const agent = input.agent ?? (config.AGENT_PRIVATE_KEY ? undefined : '0x3333333333333333333333333333333333333333')
+	const mandate = {
+		owner: state.device.owner,
+		agent: agent ?? '0x3333333333333333333333333333333333333333',
+		delegate: state.vault.delegate,
+		token: MONAD_MAINNET.usdc.address,
+		merchant: DEMO_SERVICE.merchant,
+		serviceHash: DEMO_SERVICE.serviceHash,
+		maxTotalAtomic: input.maxTotalAtomic,
+		maxPerPaymentAtomic: input.maxPerPaymentAtomic,
+		spentAtomic: '0',
+		expiresAt: Math.floor(Date.now() / 1000) + input.expiresInSeconds,
+		nonce: createNonce(),
+		revoked: false,
+	}
+	const signature = await signMandate({ mode: state.device.mode, mandate })
+	const signed = { ...mandate, signature }
+	patchState({ mandate: signed })
+	addEvent({ actor: 'GridPlus', title: 'Agent mandate signed', detail: `Agent can spend up to ${input.maxTotalAtomic} atomic USDC, capped at ${input.maxPerPaymentAtomic} per request.`, status: 'success' })
+	return c.json({ mandate: signed, state: getState() })
+})
+
+routes.post('/mandates/revoke', (c) => {
+	const current = getActiveMandate()
+	patchState({ mandate: { ...current, revoked: true } })
+	addEvent({ actor: 'Owner', title: 'Mandate revoked', detail: 'Future agent payments are blocked.', status: 'warning' })
+	return c.json({ state: getState() })
+})
+
+routes.post('/agent/run-valid-demo', async (c) => c.json(await runAgentDemo('valid')))
+routes.post('/agent/run-blocked-demo', async (c) => c.json(await runAgentDemo('blocked')))
+routes.post('/agent/run-revoked-demo', async (c) => c.json(await runAgentDemo('revoked')))
+
+routes.get('/service/research', (c) => {
+	const challenge = buildResearchChallenge(DEMO_SERVICE.validPaymentAtomic)
+	return c.json(challenge, 402)
+})
+
+routes.get('/debug/payment-id', (c) => c.json({ paymentId: `0x${randomBytes(32).toString('hex')}` }))

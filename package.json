@@ -1,0 +1,24 @@
+{
+	"name": "gridplus-monad-agent-vault-demo",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@10.30.2",
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"dev": "pnpm --parallel --filter @gridplus-monad-agent-vault/api --filter @gridplus-monad-agent-vault/dapp dev",
+		"dev:api": "pnpm --filter @gridplus-monad-agent-vault/api dev",
+		"dev:dapp": "pnpm --filter @gridplus-monad-agent-vault/dapp dev",
+		"build": "pnpm -r build",
+		"typecheck": "pnpm -r typecheck",
+		"test": "pnpm -r test",
+		"contracts:test": "forge test -vvv"
+	},
+	"devDependencies": {
+		"@types/node": "^25.2.0",
+		"typescript": "^5.9.3",
+		"vitest": "^4.0.12"
+	}
+}

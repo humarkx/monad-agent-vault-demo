@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: monad-agent-vault-api
+    runtime: node
+    repo: https://github.com/humarkx/monad-agent-vault-demo
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @gridplus-monad-agent-vault/api build
+    startCommand: pnpm --filter @gridplus-monad-agent-vault/api start
+    healthCheckPath: /health
+
+  - type: web
+    name: monad-agent-vault-dapp
+    runtime: static
+    repo: https://github.com/humarkx/monad-agent-vault-demo
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @gridplus-monad-agent-vault/dapp build
+    staticPublishPath: apps/dapp/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
