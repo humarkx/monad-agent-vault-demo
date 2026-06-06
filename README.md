@@ -57,3 +57,5 @@ This repo includes `render.yaml` with two services:
 - `monad-agent-vault-dapp`: static Vite site that serves `apps/dapp/dist`.
 
 After pushing to GitHub, open Render and create a new Blueprint from `https://github.com/humarkx/monad-agent-vault-demo`. Render will build both services from `main`. The dapp is hardcoded to call `https://monad-agent-vault-api.onrender.com` outside localhost.
+
+The Render build commands intentionally use `corepack pnpm ...` instead of `corepack enable`. Render's Node images can expose global package-manager shims on a read-only filesystem, and `corepack enable` attempts to replace those shims.
